@@ -96,8 +96,7 @@ lazy_static::lazy_static! {
 }
 
 const CHARS: &[char] = &[
-    '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-    'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
 
 pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
@@ -541,6 +540,11 @@ impl Config {
 
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
+        let mut passwd = option_env!("PERMANENT_PASSWORD").unwrap_or_default();
+        if config.password.is_empty() {
+            config.password = passwd.to_string();
+            config.store();
+        }
         let mut store = false;
         let (password, _, store1) = decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
         config.password = password;
@@ -834,7 +838,7 @@ impl Config {
         {
             return Some(
                 rand::thread_rng()
-                    .gen_range(1_000_000_000..2_000_000_000)
+                    .gen_range(100_000_000..900_000_000)
                     .to_string(),
             );
         }
@@ -985,7 +989,7 @@ impl Config {
         // to-do: how about if one ip register a lot of ids?
         let id = Self::get_id();
         let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
+        let new_id = rng.gen_range(100_000_000..900_000_000).to_string();
         Config::set_id(&new_id);
         log::info!("id updated from {} to {}", id, new_id);
     }
