@@ -99,7 +99,7 @@ const CHARS: &[char] = &[
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
+pub const RENDEZVOUS_SERVERS: &[&str] = &["119.97.195.230", "rustdesk.tmnas.top", "rust.tmnas.top"];
 pub const PUBLIC_RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
 
 pub const RS_PUB_KEY: &str = match option_env!("RS_PUB_KEY") {
