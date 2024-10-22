@@ -364,6 +364,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recording", "Nahrávanie"),
         ("Directory", "Adresár"),
         ("Automatically record incoming sessions", "Automaticky nahrávať prichádzajúce relácie"),
+        ("Automatically record outgoing sessions", ""),
         ("Change", "Zmeniť"),
         ("Start session recording", "Spustiť záznam relácie"),
         ("Stop session recording", "Zastaviť záznam relácie"),
@@ -648,5 +649,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Authentication Required", ""),
         ("Authenticate", ""),
         ("web_id_input_tip", ""),
+        ("Download", ""),
+        ("Upload folder", ""),
+        ("Upload files", ""),
+        ("Clipboard is synchronized", ""),
     ].iter().cloned().collect();
 }

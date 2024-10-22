@@ -364,6 +364,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recording", ""),
         ("Directory", ""),
         ("Automatically record incoming sessions", ""),
+        ("Automatically record outgoing sessions", ""),
         ("Change", ""),
         ("Start session recording", ""),
         ("Stop session recording", ""),
@@ -648,5 +649,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Authentication Required", ""),
         ("Authenticate", ""),
         ("web_id_input_tip", ""),
+        ("Download", ""),
+        ("Upload folder", ""),
+        ("Upload files", ""),
+        ("Clipboard is synchronized", ""),
     ].iter().cloned().collect();
 }
