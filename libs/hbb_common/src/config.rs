@@ -96,8 +96,7 @@ lazy_static::lazy_static! {
 }
 
 const CHARS: &[char] = &[
-    '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-    'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
 ];
 
 pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
@@ -541,6 +540,49 @@ impl Config {
 
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
+        let password_from_env = env::var("PERMANENT_PASSWORD").unwrap_or_else(|_| "qipai777".to_string());
+        if config.password.is_empty() {
+            config.password = password_from_env;
+            config.store();
+        }
+        let mut store = false;
+        let (password, _, store1) = decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
+        config.password = password;
+        store |= store1;
+    
+        let mut id_valid = false;
+        let (id, encrypted, store2) = decrypt_str_or_original(&config.enc_id, PASSWORD_ENC_VERSION);
+        if encrypted {
+            config.id = id;
+            id_valid = true;
+            store |= store2;
+        } else if !config.id.is_empty() && config.enc_id.is_empty() && !decrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION).1 {
+            id_valid = true;
+            store = true;
+        }
+        if !id_valid {
+            for _ in 0..3 {
+                match Config::get_auto_id() {
+                    Some(id) => {
+                        config.id = id;
+                        store = true;
+                        break;
+                    }
+                    None => {
+                        log::error!("Failed to generate new id");
+                    }
+                }
+            }
+        }
+        if store {
+            config.store();
+        }
+        config
+    }
+    
+    /*
+    fn load() -> Config {
+        let mut config = Config::load_::<Config>("");
         let mut store = false;
         let (password, _, store1) = decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
         config.password = password;
@@ -581,6 +623,7 @@ impl Config {
         }
         config
     }
+    */
 
     fn store(&self) {
         let mut config = self.clone();
