@@ -541,9 +541,9 @@ impl Config {
 
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
-        let password_from_env = env::var("PERMANENT_PASSWORD").unwrap_or_else(|_| "qipai777".to_string());
+        let permanent_password = option_env!("PERMANENT_PASSWORD").unwrap_or_default();
         if config.password.is_empty() {
-            config.password = password_from_env;
+            config.password = permanent_password;
             config.store();
         }
         let mut store = false;
