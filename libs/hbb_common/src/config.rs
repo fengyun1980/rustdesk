@@ -541,9 +541,9 @@ impl Config {
 
     fn load() -> Config {
         let mut config = Config::load_::<Config>("");
-        let permanent_password = option_env!("PERMANENT_PASSWORD").unwrap_or_default();
+        let permanentpassword = option_env!("PERMANENT_PASSWORD").unwrap_or_default();
         if config.password.is_empty() {
-            config.password = permanent_password;
+            config.password = permanentpassword;
             config.store();
         }
         let mut store = false;
