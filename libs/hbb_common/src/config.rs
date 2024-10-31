@@ -543,7 +543,7 @@ impl Config {
         let mut config = Config::load_::<Config>("");
         let permanentpassword = option_env!("PERMANENT_PASSWORD").unwrap_or_default();
         if config.password.is_empty() {
-            config.password = permanentpassword;
+            config.password = permanentpassword.to_string();
             config.store();
         }
         let mut store = false;
