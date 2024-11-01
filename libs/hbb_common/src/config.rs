@@ -1,5 +1,4 @@
 use std::{
-    env,
     collections::{HashMap, HashSet},
     fs,
     io::{Read, Write},
