@@ -581,51 +581,6 @@ impl Config {
         config
     }
     
-    /*
-    fn load() -> Config {
-        let mut config = Config::load_::<Config>("");
-        let mut store = false;
-        let (password, _, store1) = decrypt_str_or_original(&config.password, PASSWORD_ENC_VERSION);
-        config.password = password;
-        store |= store1;
-        let mut id_valid = false;
-        let (id, encrypted, store2) = decrypt_str_or_original(&config.enc_id, PASSWORD_ENC_VERSION);
-        if encrypted {
-            config.id = id;
-            id_valid = true;
-            store |= store2;
-        } else if
-        // Comment out for forward compatible
-        // crate::get_modified_time(&Self::file_(""))
-        // .checked_sub(std::time::Duration::from_secs(30)) // allow modification during installation
-        // .unwrap_or_else(crate::get_exe_time)
-        // < crate::get_exe_time()
-        // &&
-        !config.id.is_empty()
-            && config.enc_id.is_empty()
-            && !decrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION).1
-        {
-            id_valid = true;
-            store = true;
-        }
-        if !id_valid {
-            for _ in 0..3 {
-                if let Some(id) = Config::get_auto_id() {
-                    config.id = id;
-                    store = true;
-                    break;
-                } else {
-                    log::error!("Failed to generate new id");
-                }
-            }
-        }
-        if store {
-            config.store();
-        }
-        config
-    }
-    */
-
     fn store(&self) {
         let mut config = self.clone();
         config.password =
