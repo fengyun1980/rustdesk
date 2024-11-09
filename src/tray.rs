@@ -23,11 +23,6 @@ pub fn start_tray() {
     }
     allow_err!(make_tray());
 }
-#[cfg(windows)]
-pub fn start_tray() {
-    // 在Windows上不创建托盘图标，直接返回
-    return;
-}
 
 fn make_tray() -> hbb_common::ResultType<()> {
     // https://github.com/tauri-apps/tray-icon/blob/dev/examples/tao.rs
