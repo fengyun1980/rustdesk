@@ -95,9 +95,7 @@ lazy_static::lazy_static! {
         ]);
 }
 
-const CHARS: &[char] = &[
-    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-];
+const CHARS: &[char] = &['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
 pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
 pub const PUBLIC_RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
