@@ -2225,7 +2225,7 @@ pub mod keys {
     pub const OPTION_HIDE_HELP_CARDS: &str = "hide-help-cards";
     pub const OPTION_DEFAULT_CONNECT_PASSWORD: &str = "default-connect-password";
     //pub const OPTION_HIDE_TRAY: &str = "hide-tray=Y";
-    pub const OPTION_HIDE_TRAY: &str = "Y";
+    pub const OPTION_HIDE_TRAY: &str = "hide-tray=N";
     pub const OPTION_ONE_WAY_CLIPBOARD_REDIRECTION: &str = "one-way-clipboard-redirection";
     pub const OPTION_ALLOW_LOGON_SCREEN_PASSWORD: &str = "allow-logon-screen-password";
     pub const OPTION_ONE_WAY_FILE_TRANSFER: &str = "one-way-file-transfer";
