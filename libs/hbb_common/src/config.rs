@@ -2144,13 +2144,15 @@ pub mod keys {
     pub const OPTION_FOLLOW_REMOTE_WINDOW: &str = "follow_remote_window";
     pub const OPTION_ZOOM_CURSOR: &str = "zoom-cursor";
     pub const OPTION_SHOW_QUALITY_MONITOR: &str = "show_quality_monitor";
-    pub const OPTION_DISABLE_AUDIO: &str = "disable_audio=Y";
+    //pub const OPTION_DISABLE_AUDIO: &str = "disable_audio=Y";
+    pub const OPTION_DISABLE_AUDIO: &str = "Y";
     pub const OPTION_ENABLE_FILE_COPY_PASTE: &str = "enable-file-copy-paste";
     pub const OPTION_DISABLE_CLIPBOARD: &str = "disable_clipboard";
     pub const OPTION_LOCK_AFTER_SESSION_END: &str = "lock_after_session_end";
     pub const OPTION_PRIVACY_MODE: &str = "privacy_mode";
     pub const OPTION_TOUCH_MODE: &str = "touch-mode";
-    pub const OPTION_I444: &str = "i444=Y";
+    //pub const OPTION_I444: &str = "i444=Y";
+    pub const OPTION_I444: &str = "Y";
     pub const OPTION_REVERSE_MOUSE_WHEEL: &str = "reverse_mouse_wheel";
     pub const OPTION_SWAP_LEFT_RIGHT_MOUSE: &str = "swap-left-right-mouse";
     pub const OPTION_DISPLAYS_AS_INDIVIDUAL_WINDOWS: &str = "displays_as_individual_windows";
@@ -2225,7 +2227,7 @@ pub mod keys {
     pub const OPTION_HIDE_HELP_CARDS: &str = "hide-help-cards";
     pub const OPTION_DEFAULT_CONNECT_PASSWORD: &str = "default-connect-password";
     //pub const OPTION_HIDE_TRAY: &str = "hide-tray=Y";
-    pub const OPTION_HIDE_TRAY: &str = "hide-tray=N";
+    pub const OPTION_HIDE_TRAY: &str = "Y";
     pub const OPTION_ONE_WAY_CLIPBOARD_REDIRECTION: &str = "one-way-clipboard-redirection";
     pub const OPTION_ALLOW_LOGON_SCREEN_PASSWORD: &str = "allow-logon-screen-password";
     pub const OPTION_ONE_WAY_FILE_TRANSFER: &str = "one-way-file-transfer";
