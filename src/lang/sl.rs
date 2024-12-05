@@ -130,7 +130,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Show quality monitor", "Prikaži nadzornik kakovosti"),
         ("Disable clipboard", "Onemogoči odložišče"),
         ("Lock after session end", "Zakleni ob koncu seje"),
-        ("Insert", "Vstavi"),
+        ("Insert Ctrl + Alt + Del", "Vstavi Ctrl + Alt + Del"),
         ("Insert Lock", "Zakleni oddaljeni računalnik"),
         ("Refresh", "Osveži"),
         ("ID does not exist", "ID ne obstaja"),
@@ -364,6 +364,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Recording", "Snemanje"),
         ("Directory", "Imenik"),
         ("Automatically record incoming sessions", "Samodejno snemaj vhodne seje"),
+        ("Automatically record outgoing sessions", ""),
         ("Change", "Spremeni"),
         ("Start session recording", "Začni snemanje seje"),
         ("Stop session recording", "Ustavi snemanje seje"),
@@ -648,5 +649,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Authentication Required", "Potrebno je preverjanje pristnosti"),
         ("Authenticate", "Preverjanje pristnosti"),
         ("web_id_input_tip", "Vnesete lahko ID iz istega strežnika, neposredni dostop preko IP naslova v spletnem odjemalcu ni podprt.\nČe želite dostopati do naprave na drugem strežniku, pripnite naslov strežnika (<id>@<naslov_strežnika>?key=<ključ>), npr. 9123456234@192.168.16.1:21117?key=5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=.\nČe želite dostopati do naprave na javnem strežniku, vnesite »<id>@public«; ključ za javni strežnik ni potreben."),
+        ("Download", ""),
+        ("Upload folder", ""),
+        ("Upload files", ""),
+        ("Clipboard is synchronized", ""),
     ].iter().cloned().collect();
 }
