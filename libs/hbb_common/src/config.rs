@@ -2158,7 +2158,7 @@ pub fn option2bool(option: &str, value: &str) -> bool {
 }
 
 pub mod keys {
-    pub const OPTION_VIEW_ONLY: &str = "view_only";
+    pub const OPTION_VIEW_ONLY: &str = "view_only=adaptive";
     pub const OPTION_SHOW_MONITORS_TOOLBAR: &str = "show_monitors_toolbar";
     pub const OPTION_COLLAPSE_TOOLBAR: &str = "collapse_toolbar";
     pub const OPTION_SHOW_REMOTE_CURSOR: &str = "show_remote_cursor";
@@ -2166,15 +2166,15 @@ pub mod keys {
     pub const OPTION_FOLLOW_REMOTE_WINDOW: &str = "follow_remote_window";
     pub const OPTION_ZOOM_CURSOR: &str = "zoom-cursor";
     pub const OPTION_SHOW_QUALITY_MONITOR: &str = "show_quality_monitor";
-    //pub const OPTION_DISABLE_AUDIO: &str = "disable_audio=Y";
-    pub const OPTION_DISABLE_AUDIO: &str = "Y";
+    pub const OPTION_DISABLE_AUDIO: &str = "disable_audio=N";
+    //pub const OPTION_DISABLE_AUDIO: &str = "Y";
     pub const OPTION_ENABLE_FILE_COPY_PASTE: &str = "enable-file-copy-paste";
     pub const OPTION_DISABLE_CLIPBOARD: &str = "disable_clipboard";
     pub const OPTION_LOCK_AFTER_SESSION_END: &str = "lock_after_session_end";
     pub const OPTION_PRIVACY_MODE: &str = "privacy_mode";
     pub const OPTION_TOUCH_MODE: &str = "touch-mode";
-    //pub const OPTION_I444: &str = "i444=Y";
-    pub const OPTION_I444: &str = "Y";
+    pub const OPTION_I444: &str = "i444=Y";
+    //pub const OPTION_I444: &str = "Y";
     pub const OPTION_REVERSE_MOUSE_WHEEL: &str = "reverse_mouse_wheel";
     pub const OPTION_SWAP_LEFT_RIGHT_MOUSE: &str = "swap-left-right-mouse";
     pub const OPTION_DISPLAYS_AS_INDIVIDUAL_WINDOWS: &str = "displays_as_individual_windows";
@@ -2197,8 +2197,8 @@ pub mod keys {
         "enable-open-new-connections-in-tabs";
     pub const OPTION_TEXTURE_RENDER: &str = "use-texture-render";
     pub const OPTION_ENABLE_CHECK_UPDATE: &str = "enable-check-update";
-    pub const OPTION_SYNC_AB_WITH_RECENT_SESSIONS: &str = "sync-ab-with-recent-sessions";
-    pub const OPTION_SYNC_AB_TAGS: &str = "sync-ab-tags";
+    pub const OPTION_SYNC_AB_WITH_RECENT_SESSIONS: &str = "sync-ab-with-recent-sessions=Y";
+    pub const OPTION_SYNC_AB_TAGS: &str = "sync-ab-tags=Y";
     pub const OPTION_FILTER_AB_BY_INTERSECTION: &str = "filter-ab-by-intersection";
     pub const OPTION_ACCESS_MODE: &str = "access-mode";
     pub const OPTION_ENABLE_KEYBOARD: &str = "enable-keyboard";
@@ -2209,7 +2209,7 @@ pub mod keys {
     pub const OPTION_ENABLE_REMOTE_RESTART: &str = "enable-remote-restart";
     pub const OPTION_ENABLE_RECORD_SESSION: &str = "enable-record-session";
     pub const OPTION_ENABLE_BLOCK_INPUT: &str = "enable-block-input";
-    pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification";
+    pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification=Y";
     pub const OPTION_ENABLE_LAN_DISCOVERY: &str = "enable-lan-discovery";
     pub const OPTION_DIRECT_SERVER: &str = "direct-server";
     pub const OPTION_DIRECT_ACCESS_PORT: &str = "direct-access-port";
