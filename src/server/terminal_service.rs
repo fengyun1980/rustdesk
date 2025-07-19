@@ -7,7 +7,9 @@ use portable_pty::{Child, CommandBuilder, PtySize};
 use std::{
     collections::{HashMap, VecDeque},
     io::{Read, Write},
+    ops::{Deref, DerefMut},
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
         Arc, Mutex,
     },
@@ -129,6 +131,8 @@ fn get_or_create_service(
     // Ensure cleanup task is running
     ensure_cleanup_task();
 
+    service.lock().unwrap().needs_session_sync = true;
+
     Ok(service)
 }
 
@@ -141,11 +145,7 @@ fn remove_service(service_id: &str) {
         let sessions = service.lock().unwrap().sessions.clone();
         for (_, session) in sessions.iter() {
             let mut session = session.lock().unwrap();
-            if let Some(mut child) = session.child.take() {
-                // Kill the process
-                let _ = child.kill();
-                add_to_reaper(child);
-            }
+            session.stop();
         }
     }
 }
@@ -265,17 +265,60 @@ fn ensure_cleanup_task() {
     }
 }
 
-pub fn new(service_id: String, is_persistent: bool) -> GenericService {
+#[cfg(target_os = "linux")]
+pub fn get_terminal_session_count(include_zombie_tasks: bool) -> usize {
+    let mut c = TERMINAL_SERVICES.lock().unwrap().len();
+    if include_zombie_tasks {
+        c += TERMINAL_TASKS.lock().unwrap().len();
+    }
+    c
+}
+
+pub type UserToken = u64;
+
+#[derive(Clone)]
+pub struct TerminalService {
+    sp: GenericService,
+    user_token: Option<UserToken>,
+}
+
+impl Deref for TerminalService {
+    type Target = ServiceTmpl<ConnInner>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sp
+    }
+}
+
+impl DerefMut for TerminalService {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sp
+    }
+}
+
+pub fn get_service_name(source: VideoSource, idx: usize) -> String {
+    format!("{}{}", source.service_name_prefix(), idx)
+}
+
+pub fn new(
+    service_id: String,
+    is_persistent: bool,
+    user_token: Option<UserToken>,
+) -> GenericService {
     // Create the service with initial persistence setting
     allow_err!(get_or_create_service(service_id.clone(), is_persistent));
-    let svc = EmptyExtraFieldService::new(service_id.clone(), false);
+    let svc = TerminalService {
+        sp: GenericService::new(service_id.clone(), false),
+        user_token,
+    };
     GenericService::run(&svc.clone(), move |sp| run(sp, service_id.clone()));
     svc.sp
 }
 
-fn run(sp: EmptyExtraFieldService, service_id: String) -> ResultType<()> {
+fn run(sp: TerminalService, service_id: String) -> ResultType<()> {
     while sp.ok() {
-        let responses = TerminalServiceProxy::new(service_id.clone(), None).read_outputs();
+        let responses = TerminalServiceProxy::new(service_id.clone(), None, sp.user_token.clone())
+            .read_outputs();
         for response in responses {
             let mut msg_out = Message::new();
             msg_out.set_terminal_response(response);
@@ -393,6 +436,7 @@ pub struct TerminalSession {
     input_tx: Option<SyncSender<Vec<u8>>>,
     // Channel for receiving output from the reader thread
     output_rx: Option<Receiver<Vec<u8>>>,
+    exiting: Arc<AtomicBool>,
     // Thread handles
     reader_thread: Option<thread::JoinHandle<()>>,
     writer_thread: Option<thread::JoinHandle<()>>,
@@ -414,6 +458,7 @@ impl TerminalSession {
             child: None,
             input_tx: None,
             output_rx: None,
+            exiting: Arc::new(AtomicBool::new(false)),
             reader_thread: None,
             writer_thread: None,
             output_buffer: OutputBuffer::new(),
@@ -428,26 +473,65 @@ impl TerminalSession {
     fn update_activity(&mut self) {
         self.last_activity = Instant::now();
     }
-}
 
-impl Drop for TerminalSession {
-    fn drop(&mut self) {
+    // This helper function is to ensure that the threads are joined before the child process is dropped.
+    // Though this is not strictly necessary on macOS.
+    fn stop(&mut self) {
+        self.exiting.store(true, Ordering::SeqCst);
+
         // Drop the input channel to signal writer thread to exit
-        drop(self.input_tx.take());
+        if let Some(input_tx) = self.input_tx.take() {
+            // Send a final newline to ensure the reader can read some data, and then exit.
+            // This is required on Windows and Linux.
+            // Although `self.pty_pair = None;` is called below, we can still send a final newline here.
+            if let Err(e) = input_tx.send(b"\r\n".to_vec()) {
+                log::warn!("Failed to send final newline to the terminal: {}", e);
+            }
+            drop(input_tx);
+        }
+        self.output_rx = None;
+
+        // 1. Windows
+        //    `pty_pair` uses pipe. https://github.com/rustdesk-org/wezterm/blob/80174f8009f41565f0fa8c66dab90d4f9211ae16/pty/src/win/conpty.rs#L16
+        //     `read()` may stuck at https://github.com/rustdesk-org/wezterm/blob/80174f8009f41565f0fa8c66dab90d4f9211ae16/filedescriptor/src/windows.rs#L345
+        //     We can close the pipe to signal the reader thread to exit.
+        //     After https://github.com/rustdesk-org/wezterm/blob/80174f8009f41565f0fa8c66dab90d4f9211ae16/pty/src/win/psuedocon.rs#L86, the reader reads `[27, 91, 63, 57, 48, 48, 49, 108, 27, 91, 63, 49, 48, 48, 52, 108]` in my tests.
+        // 2. Linux
+        //    `pty_pair` uses `libc::openpty`. https://github.com/rustdesk-org/wezterm/blob/80174f8009f41565f0fa8c66dab90d4f9211ae16/pty/src/unix.rs#L32
+        //    We can also call the drop method first. https://github.com/rustdesk-org/wezterm/blob/80174f8009f41565f0fa8c66dab90d4f9211ae16/pty/src/unix.rs#L352
+        //    The reader will get [13, 10] after dropping the `pty_pair`.
+        // 3. macOS
+        //    No stuck cases have been found so far, more testing is needed.
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        {
+            self.pty_pair = None;
+        }
 
         // Wait for threads to finish
-        if let Some(writer_thread) = self.writer_thread.take() {
-            let _ = writer_thread.join();
-        }
+        // The reader thread should join before the writer thread on Windows.
         if let Some(reader_thread) = self.reader_thread.take() {
             let _ = reader_thread.join();
         }
 
-        // Ensure child process is properly handled when session is dropped
+        // The read can read the last "\r\n" after the writer thread (not the child process) exits
+        // on Linux in my tests.
+        // But we still send "\r\n" to the writer thread and let the reader thread exit first for safety.
+        if let Some(writer_thread) = self.writer_thread.take() {
+            let _ = writer_thread.join();
+        }
+
         if let Some(mut child) = self.child.take() {
+            // Kill the process
             let _ = child.kill();
             add_to_reaper(child);
         }
+    }
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        // Ensure child process is properly handled when session is dropped
+        self.stop();
     }
 }
 
@@ -458,6 +542,7 @@ pub struct PersistentTerminalService {
     pub created_at: Instant,
     last_activity: Instant,
     pub is_persistent: bool,
+    needs_session_sync: bool,
 }
 
 impl PersistentTerminalService {
@@ -468,6 +553,7 @@ impl PersistentTerminalService {
             created_at: Instant::now(),
             last_activity: Instant::now(),
             is_persistent,
+            needs_session_sync: false,
         }
     }
 
@@ -515,6 +601,8 @@ impl PersistentTerminalService {
 pub struct TerminalServiceProxy {
     service_id: String,
     is_persistent: bool,
+    #[cfg(target_os = "windows")]
+    user_token: Option<UserToken>,
 }
 
 pub fn set_persistent(service_id: &str, is_persistent: bool) -> Result<()> {
@@ -527,7 +615,11 @@ pub fn set_persistent(service_id: &str, is_persistent: bool) -> Result<()> {
 }
 
 impl TerminalServiceProxy {
-    pub fn new(service_id: String, is_persistent: Option<bool>) -> Self {
+    pub fn new(
+        service_id: String,
+        is_persistent: Option<bool>,
+        _user_token: Option<UserToken>,
+    ) -> Self {
         // Get persistence from the service if it exists
         let is_persistent =
             is_persistent.unwrap_or(if let Some(service) = get_service(&service_id) {
@@ -538,6 +630,8 @@ impl TerminalServiceProxy {
         TerminalServiceProxy {
             service_id,
             is_persistent,
+            #[cfg(target_os = "windows")]
+            user_token: _user_token,
         }
     }
 
@@ -606,6 +700,19 @@ impl TerminalServiceProxy {
             if self.is_persistent {
                 opened.service_id = self.service_id.clone();
             }
+            if service.needs_session_sync {
+                if service.sessions.len() > 1 {
+                    // No need to include the current terminal in the list.
+                    // Because the `persistent_sessions` is used to restore the other sessions.
+                    opened.persistent_sessions = service
+                        .sessions
+                        .keys()
+                        .filter(|&id| *id != open.terminal_id)
+                        .cloned()
+                        .collect();
+                }
+                service.needs_session_sync = false;
+            }
             response.set_opened(opened);
 
             // Send buffered output
@@ -641,7 +748,14 @@ impl TerminalServiceProxy {
         // Use default shell for the platform
         let shell = get_default_shell();
         log::debug!("Using shell: {}", shell);
-        let cmd = CommandBuilder::new(&shell);
+
+        #[allow(unused_mut)]
+        let mut cmd = CommandBuilder::new(&shell);
+
+        #[cfg(target_os = "windows")]
+        if let Some(token) = &self.user_token {
+            cmd.set_user_token(*token as _);
+        }
 
         log::debug!("Spawning shell process...");
         let child = pty_pair
@@ -669,6 +783,17 @@ impl TerminalServiceProxy {
         let terminal_id = open.terminal_id;
         let writer_thread = thread::spawn(move || {
             let mut writer = writer;
+            // Write initial carriage return:
+            // 1. Windows requires at least one carriage return for `drop()` to work properly.
+            //    Without this, the reader may fail to read the buffer after `input_tx.send(b"\r\n".to_vec()).ok();`.
+            // 2. This also refreshes the terminal interface on the controlling side (workaround for blank content on connect).
+            if let Err(e) = writer.write_all(b"\r") {
+                log::error!("Terminal {} initial write error: {}", terminal_id, e);
+            } else {
+                if let Err(e) = writer.flush() {
+                    log::error!("Terminal {} initial flush error: {}", terminal_id, e);
+                }
+            }
             while let Ok(data) = input_rx.recv() {
                 if let Err(e) = writer.write_all(&data) {
                     log::error!("Terminal {} write error: {}", terminal_id, e);
@@ -681,6 +806,7 @@ impl TerminalServiceProxy {
             log::debug!("Terminal {} writer thread exiting", terminal_id);
         });
 
+        let exiting = session.exiting.clone();
         // Spawn reader thread
         let terminal_id = open.terminal_id;
         let reader_thread = thread::spawn(move || {
@@ -690,9 +816,14 @@ impl TerminalServiceProxy {
                 match reader.read(&mut buf) {
                     Ok(0) => {
                         // EOF
+                        // This branch can be reached when the child process exits on macOS.
+                        // But not on Linux and Windows in my tests.
                         break;
                     }
                     Ok(n) => {
+                        if exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
                         let data = buf[..n].to_vec();
                         // Try to send, if channel is full, drop the data
                         match output_tx.try_send(data) {
@@ -710,6 +841,10 @@ impl TerminalServiceProxy {
                         }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // This branch is not reached in my tests, but we still add `exiting` check to ensure we can exit.
+                        if exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
                         // For non-blocking I/O, sleep briefly
                         thread::sleep(Duration::from_millis(10));
                     }
@@ -737,6 +872,12 @@ impl TerminalServiceProxy {
         // Return service_id for persistent sessions
         if self.is_persistent {
             opened.service_id = service.service_id.clone();
+        }
+        if service.needs_session_sync {
+            if !service.sessions.is_empty() {
+                opened.persistent_sessions = service.sessions.keys().cloned().collect();
+            }
+            service.needs_session_sync = false;
         }
         response.set_opened(opened);
 
