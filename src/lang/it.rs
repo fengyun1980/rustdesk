@@ -147,8 +147,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("OS Password", "Password sistema operativo"),
         ("install_tip", "A causa del Controllo Account Utente (UAC), RustDesk potrebbe non funzionare correttamente come desktop remoto.\nPer evitare questo problema, fai clic sul tasto qui sotto per installare RustDesk a livello di sistema."),
         ("Click to upgrade", "Aggiorna"),
-        ("Click to download", "Download"),
-        ("Click to update", "Aggiorna"),
         ("Configure", "Configura"),
         ("config_acc", "Per controllare il desktop dall'esterno, devi fornire a RustDesk il permesso 'Accessibilità'."),
         ("config_screen", "Per controllare il desktop dall'esterno, devi fornire a RustDesk il permesso 'Registrazione schermo'."),
@@ -709,6 +707,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("The user is not an administrator.", "L'utente non è un amministratore."),
         ("Failed to check if the user is an administrator.", "Impossibile verificare se l'utente è un amministratore."),
         ("Supported only in the installed version.", "Supportato solo nella versione installata."),
-        ("elevation_username_tip", ""),
+        ("elevation_username_tip", "Inserisci Nome utente o dominio sorgente\\nome Utente"),
     ].iter().cloned().collect();
 }

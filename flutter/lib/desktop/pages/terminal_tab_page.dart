@@ -124,7 +124,7 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
       },
       setter: (bool v) async {
         final ffi = Get.find<FFI>(tag: 'terminal_$peerId');
-        bind.sessionToggleOption(
+        await bind.sessionToggleOption(
           sessionId: ffi.sessionId,
           value: kOptionTerminalPersistent,
         );
@@ -177,6 +177,18 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
         tabController.clear();
       } else if (call.method == kWindowActionRebuild) {
         reloadCurrentWindow();
+      } else if (call.method == kWindowEventActiveSession) {
+        if (tabController.state.value.tabs.isEmpty) {
+          return false;
+        }
+        final currentTab = tabController.state.value.selectedTabInfo;
+        assert(call.arguments is String,
+            "Expected String arguments for kWindowEventActiveSession, got ${call.arguments.runtimeType}");
+        if (currentTab.key.startsWith(call.arguments)) {
+          windowOnTop(windowId());
+          return true;
+        }
+        return false;
       }
     });
     Future.delayed(Duration.zero, () {
