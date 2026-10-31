@@ -39,7 +39,7 @@ on:
       custom_server:
         description: "统一服务器地址（填一个域名/IP，自动应用到 ID、中继、API 服务器。不加 http://）"
         type: string
-        default: ""
+        default: "192.168.51.7"
       custom_id_server:
         description: "ID 服务器地址（仅当与统一地址不同时填写）"
         type: string
