@@ -30,8 +30,9 @@ on:
       tag_name:
         description: "Release 标签名"
         type: choice
-        default: "master"
+        default: "请选择"
         options:
+          - 请选择
           - master
           - master-sos
       rustdesk_version:
