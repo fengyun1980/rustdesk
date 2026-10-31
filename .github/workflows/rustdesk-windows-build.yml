@@ -249,6 +249,12 @@ jobs:
       # ==================================================================
 
       # ── 注入服务器配置 ──
+      # 实际源码位置（master 分支）：
+      #   服务器地址: libs/hbb_common/src/config.rs → RENDEZVOUS_SERVERS (数组)
+      #   端口:       libs/hbb_common/src/config.rs → RENDEZVOUS_PORT / RELAY_PORT
+      #   公钥:       libs/hbb_common/src/config.rs → RS_PUB_KEY
+      #   固定密码:   flutter/lib/main.dart → Config::set_permanent_password()
+      #   API/中继:   flutter/lib/main.dart → Config::set_option()
       - name: Inject server config
         if: |
           (github.event_name == 'workflow_dispatch' &&
@@ -260,82 +266,158 @@ jobs:
             inputs.custom_fixed_password != '' ||
             inputs.custom_id_port != '' ||
             inputs.custom_relay_port != ''))
-        shell: pwsh
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
-          $uniServer    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_server || '' }}"
-          $idServer     = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_server || '' }}"
-          $relayServer  = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_server || '' }}"
-          $apiServer    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_api_server || '' }}"
-          $publicKey    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_public_key || '' }}"
-          $fixedPwd     = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_fixed_password || '' }}"
-          $idPort       = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_port || '' }}"
-          $relayPort    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_port || '' }}"
+          UNI_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_server || '' }}"
+          ID_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_server || '' }}"
+          RELAY_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_server || '' }}"
+          API_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_api_server || '' }}"
+          PUBLIC_KEY="${{ github.event_name == 'workflow_dispatch' && inputs.custom_public_key || '' }}"
+          FIXED_PWD="${{ github.event_name == 'workflow_dispatch' && inputs.custom_fixed_password || '' }}"
+          ID_PORT="${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_port || '' }}"
+          RELAY_PORT="${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_port || '' }}"
 
           # 统一地址回退
-          if ($uniServer -ne "") {
-            if ($idServer -eq "")    { $idServer    = $uniServer }
-            if ($relayServer -eq "") { $relayServer = $uniServer }
-            if ($apiServer -eq "")   { $apiServer   = "http://$uniServer" }
-            Write-Host "  [Unified] $uniServer"
-          }
+          if [ -n "$UNI_SERVER" ]; then
+            [ -z "$ID_SERVER" ]    && ID_SERVER="$UNI_SERVER"
+            [ -z "$RELAY_SERVER" ] && RELAY_SERVER="$UNI_SERVER"
+            [ -z "$API_SERVER" ]   && API_SERVER="http://${UNI_SERVER}"
+            echo "  [Unified] $UNI_SERVER"
+          fi
 
-          Write-Host "========== Inject server config =========="
+          echo "========== Inject server config =========="
 
-          # 1. src/common.rs: 服务器地址和端口
-          $commonFile = "src/common.rs"
-          $commonContent = Get-Content $commonFile -Raw -Encoding UTF8
+          # ── 1. 修改 libs/hbb_common/src/config.rs ──
+          CONFIG_RS="libs/hbb_common/src/config.rs"
+          if [ -f "$CONFIG_RS" ]; then
+            python3 << 'PYEOF'
+          import re, os
 
-          if ($idServer -ne "") {
-            $commonContent = $commonContent -replace '("default.*?server.*?)(rustdesk\.com)', "`${1}$idServer"
-            Write-Host "  [ID Server] $idServer"
-          }
-          if ($relayServer -ne "") {
-            Write-Host "  [Relay] $relayServer"
-          }
-          if ($idPort -ne "") {
-            $commonContent = $commonContent -replace '(DEFAULT_PORT.*?=\s*)\d+', "`${1}$idPort"
-            Write-Host "  [ID Port] $idPort"
-          }
-          if ($relayPort -ne "") {
-            $commonContent = $commonContent -replace '(RELAY_PORT.*?=\s*)\d+', "`${1}$relayPort"
-            Write-Host "  [Relay Port] $relayPort"
-          }
-          Set-Content $commonFile -Value $commonContent -Encoding UTF8 -NoNewline
+          config_rs = os.environ.get("CONFIG_RS", "libs/hbb_common/src/config.rs")
+          id_server = os.environ.get("ID_SERVER", "")
+          id_port = os.environ.get("ID_PORT", "")
+          relay_port = os.environ.get("RELAY_PORT", "")
+          public_key = os.environ.get("PUBLIC_KEY", "")
 
-          # 2. 公钥
-          if ($publicKey -ne "") {
-            $configFile = "libs/hbb_common/src/config.rs"
-            if (Test-Path $configFile) {
-              $c = Get-Content $configFile -Raw -Encoding UTF8
-              $c = $c -replace '(pub\s+const\s+RENDEZVOUS_SERVER.*?")(")', "`${1}$publicKey`${2}"
-              Set-Content $configFile -Value $c -Encoding UTF8 -NoNewline
-              Write-Host "  [Key] set"
-            }
-          }
+          with open(config_rs, "r", encoding="utf-8") as f:
+              content = f.read()
 
-          # 3. 固定密码
-          if ($fixedPwd -ne "") {
-            $connFile = "src/server/connection.rs"
-            if (Test-Path $connFile) {
-              $c = Get-Content $connFile -Raw -Encoding UTF8
-              $c = $c -replace '("password"\s*,\s*")(")', "`${1}$fixedPwd`${2}"
-              Set-Content $connFile -Value $c -Encoding UTF8 -NoNewline
-              Write-Host "  [Password] set"
-            }
-          }
+          changes = []
 
-          # 4. API 服务器
-          if ($apiServer -ne "") {
-            $apiFile = "flutter/lib/models/platform/web_platform.dart"
-            if (Test-Path $apiFile) {
-              $c = Get-Content $apiFile -Raw -Encoding UTF8
-              $c = $c -replace '(apiServer.*?=\s*["''])([^"'']*?)(["''])', "`${1}$apiServer`${3}"
-              Set-Content $apiFile -Value $c -Encoding UTF8 -NoNewline
-            }
-            Write-Host "  [API] $apiServer"
-          }
+          # 服务器地址: RENDEZVOUS_SERVERS 数组
+          if id_server:
+              old = re.search(r'pub const RENDEZVOUS_SERVERS.*?=.*?;', content, re.DOTALL)
+              if old:
+                  new_val = 'pub const RENDEZVOUS_SERVERS: &[&str] = &["' + id_server + '"];'
+                  content = content[:old.start()] + new_val + content[old.end():]
+                  changes.append("ID Server -> " + id_server)
+              else:
+                  changes.append("WARNING: RENDEZVOUS_SERVERS not found")
 
-          Write-Host "========== Done =========="
+          # ID 端口: RENDEZVOUS_PORT
+          if id_port:
+              old = re.search(r'pub const RENDEZVOUS_PORT\s*:\s*i32\s*=\s*\d+', content)
+              if old:
+                  new_val = 'pub const RENDEZVOUS_PORT: i32 = ' + id_port
+                  content = content[:old.start()] + new_val + content[old.end():]
+                  changes.append("ID Port -> " + id_port)
+              else:
+                  changes.append("WARNING: RENDEZVOUS_PORT not found")
+
+          # 中继端口: RELAY_PORT
+          if relay_port:
+              old = re.search(r'pub const RELAY_PORT\s*:\s*i32\s*=\s*\d+', content)
+              if old:
+                  new_val = 'pub const RELAY_PORT: i32 = ' + relay_port
+                  content = content[:old.start()] + new_val + content[old.end():]
+                  changes.append("Relay Port -> " + relay_port)
+              else:
+                  changes.append("WARNING: RELAY_PORT not found")
+
+          # 公钥: RS_PUB_KEY
+          if public_key:
+              old = re.search(r'pub const RS_PUB_KEY\s*:\s*&str\s*=\s*"[^"]*"', content)
+              if old:
+                  new_val = 'pub const RS_PUB_KEY: &str = "' + public_key + '"'
+                  content = content[:old.start()] + new_val + content[old.end():]
+                  changes.append("Key -> " + public_key[:10] + "...")
+              else:
+                  changes.append("WARNING: RS_PUB_KEY not found")
+
+          with open(config_rs, "w", encoding="utf-8") as f:
+              f.write(content)
+
+          for c in changes:
+              print("  " + c)
+          PYEOF
+          else
+            echo "  WARNING: $CONFIG_RS not found"
+          fi
+
+          # ── 2. 注入固定密码 + 中继/API 服务器到 Flutter main.dart ──
+          MAIN_DART="flutter/lib/main.dart"
+          if [ -f "$MAIN_DART" ]; then
+            python3 << 'PYEOF'
+          import os
+
+          fixed_pwd = os.environ.get("FIXED_PWD", "")
+          api_server = os.environ.get("API_SERVER", "")
+          relay_server = os.environ.get("RELAY_SERVER", "")
+
+          with open("flutter/lib/main.dart", "r", encoding="utf-8") as f:
+              content = f.read()
+
+          # 在 runMainApp 中 gFFI.serverModel.startService() 之后注入
+          inject_lines = []
+          inject_lines.append("  // === [Injected] Custom server config ===")
+
+          if fixed_pwd:
+              inject_lines.append('  Config.set_permanent_password("' + fixed_pwd + '");')
+              print("  [Password] set")
+
+          if relay_server:
+              inject_lines.append('  Config.set_option("relay-server", "' + relay_server + '");')
+              print("  [Relay] " + relay_server)
+
+          if api_server:
+              inject_lines.append('  Config.set_option("api-server", "' + api_server + '");')
+              print("  [API] " + api_server)
+
+          inject_lines.append("  // === [Injected] End custom config ===")
+          inject_code = "\n".join(inject_lines) + "\n"
+
+          # 在 startService 调用后插入
+          marker = "gFFI.serverModel.startService();"
+          if marker in content:
+              content = content.replace(marker, marker + "\n" + inject_code, 1)
+              print("  [Flutter] injected after startService()")
+          else:
+              # 备选：在 windowManager.setOpacity(1) 前插入
+              marker2 = "windowManager.setOpacity(1);"
+              if marker2 in content:
+                  content = content.replace(marker2, inject_code + "      " + marker2, 1)
+                  print("  [Flutter] injected before setOpacity")
+              else:
+                  print("  WARNING: no injection point found in main.dart")
+
+          with open("flutter/lib/main.dart", "w", encoding="utf-8") as f:
+              f.write(content)
+          PYEOF
+          else
+            echo "  WARNING: $MAIN_DART not found"
+          fi
+
+          # ── 3. 验证注入结果 ──
+          echo ""
+          echo "=== Verification ==="
+          grep -n "RENDEZVOUS_SERVERS" "$CONFIG_RS" | head -1
+          grep -n "RENDEZVOUS_PORT" "$CONFIG_RS" | head -1
+          grep -n "RELAY_PORT" "$CONFIG_RS" | head -1
+          grep -n "RS_PUB_KEY" "$CONFIG_RS" | head -1
+          grep -n "set_permanent_password\|relay-server\|api-server" "$MAIN_DART" | head -5
+          echo "========== Done =========="
 
       # ── 注入权限选项 ──
       - name: Inject permissions
@@ -345,27 +427,28 @@ jobs:
             inputs.hide_connection_window ||
             inputs.enable_sos_mode))
         shell: pwsh
+        env:
+          ALLOW_REMOTE_CONFIG: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_remote_config || 'false' }}
+          HIDE_CONN_WINDOW: ${{ github.event_name == 'workflow_dispatch' && inputs.hide_connection_window || 'false' }}
+          ENABLE_SOS: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_sos_mode || 'false' }}
         run: |
-          $allowRemoteConfig = "${{ github.event_name == 'workflow_dispatch' && inputs.allow_remote_config || 'false' }}"
-          $hideConnWindow    = "${{ github.event_name == 'workflow_dispatch' && inputs.hide_connection_window || 'false' }}"
-          $enableSos         = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_sos_mode || 'false' }}"
+          $allowRemoteConfig = $env:ALLOW_REMOTE_CONFIG
+          $hideConnWindow = $env:HIDE_CONN_WINDOW
+          $enableSos = $env:ENABLE_SOS
 
           $optFile = "src/server/connection.rs"
           if (Test-Path $optFile) {
             $c = Get-Content $optFile -Raw -Encoding UTF8
             if ($allowRemoteConfig -eq "true") {
-              $c = $c -replace '(OPTION_ALLOW_REMOTE_CONFIG.*?=\s*)false', '${1}true'
-              Write-Host "  [Remote Config] enabled"
+              $c = $c -replace '(OPTION_ALLOW_REMOTE_CONFIG.*?)false', '${1}true'
             }
             if ($hideConnWindow -eq "true") {
-              $c = $c -replace '(OPTION_HIDE_CM_WINDOW.*?=\s*)false', '${1}true'
-              Write-Host "  [Hide CM] enabled"
+              $c = $c -replace '(OPTION_HIDE_CONN_WINDOW.*?)false', '${1}true'
             }
             if ($enableSos -eq "true") {
-              $c = $c -replace '(OPTION_ENABLE_SOS.*?=\s*)false', '${1}true'
-              Write-Host "  [SOS] enabled"
+              $c = $c -replace '(OPTION_ENABLE_SOS.*?)false', '${1}true'
             }
-            Set-Content $optFile -Value $c -Encoding UTF8 -NoNewline
+            Set-Content $optFile -Value $c -Encoding UTF8
           }
 
       # ── 注入托盘选项（bash + python 避免 PowerShell 转义/编码问题）──
