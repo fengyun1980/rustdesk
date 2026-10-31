@@ -30,7 +30,7 @@ on:
       tag_name:
         description: "Release 标签名"
         type: string
-        default: "nightly"
+        default: "master"
       rustdesk_version:
         description: "RustDesk 源码 tag（如 1.5.1，留空用 master）"
         type: string
