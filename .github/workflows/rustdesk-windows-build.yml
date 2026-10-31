@@ -284,7 +284,7 @@ jobs:
           # 统一地址回退
           [ -n "$UNI_SERVER" ] && [ -z "$ID_SERVER" ] && ID_SERVER="$UNI_SERVER"
           [ -n "$UNI_SERVER" ] && [ -z "$RELAY_SERVER" ] && RELAY_SERVER="$UNI_SERVER"
-          [ -n "$UNI_SERVER" ] && [ -z "$API_SERVER" ] && API_SERVER="http://${UNI_SERVER}"
+          [ -n "$UNI_SERVER" ] && [ -z "$API_SERVER" ] && API_SERVER="http://${UNI_SERVER}:21114"
 
           echo "=== Inject server config ==="
           echo "ID_SERVER=$ID_SERVER"
@@ -308,9 +308,9 @@ jobs:
           MAIN_DART="flutter/lib/main.dart"
           if [ -f "$MAIN_DART" ]; then
             INJECT_CODE="    // === Injected config ==="
-            [ -n "$FIXED_PWD" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_permanent_password(\"$FIXED_PWD\");"
-            [ -n "$RELAY_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_option(\"relay-server\", \"$RELAY_SERVER\");"
-            [ -n "$API_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_option(\"api-server\", \"$API_SERVER\");"
+            [ -n "$FIXED_PWD" ] && INJECT_CODE="$INJECT_CODE\n    bind.mainSetPermanentPasswordWithResult(password: \"$FIXED_PWD\");"
+            [ -n "$RELAY_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    bind.mainSetOption(key: \"relay-server\", value: \"$RELAY_SERVER\");"
+            [ -n "$API_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    bind.mainSetOption(key: \"api-server\", value: \"$API_SERVER\");"
             INJECT_CODE="$INJECT_CODE\n    // === End injected ==="
 
             sed -i "/gFFI.serverModel.startService();/a\\$INJECT_CODE" "$MAIN_DART"
