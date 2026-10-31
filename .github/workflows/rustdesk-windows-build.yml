@@ -181,7 +181,11 @@ jobs:
           cargo install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --features "uuid" --locked
 
       - name: Flutter pub get
+        shell: bash
         run: |
+          # Flutter 3.22.3 的 Dart SDK 是 3.4.4，但 extended_text 14.0.0 需要 Dart >=3.5.0
+          # 降级 extended_text 到 13.0.0 以兼容
+          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
           pushd flutter && flutter pub get && popd
 
       - name: Generate bridge files
