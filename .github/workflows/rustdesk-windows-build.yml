@@ -92,7 +92,7 @@ on:
       disable_tray_startup:
         description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
         type: boolean
-        default: false
+        default: true
 
       # ── 编译选项 ──
       enable_hwcodec:
@@ -487,8 +487,7 @@ jobs:
           '''
           # 在 install_me 函数中找到 'run_cmds(' 前插入
           pattern = r'(run_cmds\(\s*InstallCommands)'
-          replacement = hide_tray_code + '\n          \1'
-          new_content = re.sub(pattern, replacement, content, count=1)
+          new_content = re.sub(pattern, lambda m: hide_tray_code + '\n          ' + m.group(1), content, count=1)
           with open('$WIN_FILE', 'w', encoding='utf-8') as f:
               f.write(new_content)
           print('  [Hide Tray Icon] 已注入运行时隐藏托盘选项')
