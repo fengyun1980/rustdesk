@@ -39,15 +39,15 @@ on:
       custom_id_server:
         description: "ID 服务器地址（域名或 IP，不加 http://）"
         type: string
-        default: ""
+        default: "192.168.51.7"
       custom_relay_server:
         description: "中继服务器地址（域名或 IP，不加 http://）"
         type: string
-        default: ""
+        default: "192.168.51.7"
       custom_api_server:
         description: "API 服务器地址（必须加 http:// 或 https://）"
         type: string
-        default: ""
+        default: "http://192.168.51.7:21114"
       custom_public_key:
         description: "服务器公钥（由服务端部署后生成）"
         type: string
@@ -84,7 +84,7 @@ on:
       hide_tray_icon:
         description: "隐藏系统托盘图标（运行时不显示托盘，安装时不创建自启快捷方式）"
         type: boolean
-        default: false
+        default: true
       disable_tray_startup:
         description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
         type: boolean
