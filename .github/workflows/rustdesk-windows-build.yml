@@ -52,7 +52,7 @@ on:
       custom_api_server:
         description: "API 服务器（仅当与统一地址不同时填，需加 http://）"
         type: string
-        default: "http://192.168.51.7:21114"
+        default: ""
       custom_public_key:
         description: "服务器公钥"
         type: string
