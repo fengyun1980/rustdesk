@@ -36,16 +36,20 @@ on:
         default: "nightly"
 
       # ── 服务器定制 ──
+      custom_server:
+        description: "统一服务器地址（填一个域名/IP，自动应用到 ID、中继、API 服务器。不加 http://）"
+        type: string
+        default: ""
       custom_id_server:
-        description: "ID 服务器地址（域名或 IP，不加 http://）"
+        description: "ID 服务器地址（仅当与统一地址不同时填写）"
         type: string
         default: ""
       custom_relay_server:
-        description: "中继服务器地址（域名或 IP，不加 http://）"
+        description: "中继服务器地址（仅当与统一地址不同时填写）"
         type: string
         default: ""
       custom_api_server:
-        description: "API 服务器地址（必须加 http:// 或 https://）"
+        description: "API 服务器地址（仅当与统一地址不同时填写，需加 http://）"
         type: string
         default: ""
       custom_public_key:
@@ -276,7 +280,8 @@ jobs:
       - name: Inject custom server configuration
         if: |
           (github.event_name == 'workflow_dispatch' &&
-           (inputs.custom_id_server != '' ||
+           (inputs.custom_server != '' ||
+            inputs.custom_id_server != '' ||
             inputs.custom_relay_server != '' ||
             inputs.custom_api_server != '' ||
             inputs.custom_public_key != '' ||
@@ -286,6 +291,7 @@ jobs:
         shell: pwsh
         run: |
           # ── 读取输入参数（tag 触发时为空，跳过注入）──
+          $uniServer    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_server || '' }}"
           $idServer     = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_server || '' }}"
           $relayServer  = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_server || '' }}"
           $apiServer    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_api_server || '' }}"
@@ -293,6 +299,14 @@ jobs:
           $fixedPwd     = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_fixed_password || '' }}"
           $idPort       = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_port || '' }}"
           $relayPort    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_port || '' }}"
+
+          # ── 统一服务器地址回退：单独字段为空时使用统一地址 ──
+          if ($uniServer -ne "") {
+            if ($idServer -eq "")    { $idServer    = $uniServer }
+            if ($relayServer -eq "") { $relayServer = $uniServer }
+            if ($apiServer -eq "")   { $apiServer   = "http://$uniServer" }
+            Write-Host "  [Unified Server] 使用统一地址: $uniServer"
+          }
 
           Write-Host "========== 开始注入定制参数 =========="
 
