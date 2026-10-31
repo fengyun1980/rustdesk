@@ -29,7 +29,7 @@ on:
       upload_release:
         description: "是否上传到 Release"
         type: boolean
-        default: false
+        default: true
       tag_name:
         description: "Release 标签名（如 v1.5.1）"
         type: string
