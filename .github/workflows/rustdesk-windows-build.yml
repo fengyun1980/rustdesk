@@ -51,25 +51,25 @@ on:
       custom_api_server:
         description: "API 服务器地址（仅当与统一地址不同时填写，需加 http://）"
         type: string
-        default: ""
+        default: "http://192.168.51.7:21114"
       custom_public_key:
         description: "服务器公钥（由服务端部署后生成）"
         type: string
-        default: ""
+        default: "oKIFXU23dMtEjjsPDTPcbFK4xlCxE9EfIu33+i0CppM="
       custom_fixed_password:
-        description: "固定密码（选填，客户端同时使用固定密码与随机密码）"
+        description: "固定密码（客户端同时使用固定密码与随机密码）"
         type: string
-        default: ""
+        default: "@1979"
 
       # ── 端口定制（留空使用默认值）──
       custom_id_port:
         description: "ID 服务器端口（留空默认 21116）"
         type: string
-        default: ""
+        default: "22216"
       custom_relay_port:
         description: "中继服务器端口（留空默认 21117）"
         type: string
-        default: ""
+        default: "22217"
 
       # ── 权限选项 ──
       allow_remote_config:
@@ -92,7 +92,7 @@ on:
       disable_tray_startup:
         description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
         type: boolean
-        default: true
+        default: false
 
       # ── 编译选项 ──
       enable_hwcodec:
@@ -583,10 +583,10 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
         run: |
-          if ! $env:VCPKG_ROOT/vcpkg `
-            install `
-            --triplet x64-windows-static `
-            --x-install-root="$env:VCPKG_ROOT/installed"; then
+          $vcpkgResult = & $env:VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT/installed" 2>&1
+          if (-not $?) {
+            Write-Host "vcpkg install failed"
+            Write-Host $vcpkgResult
             Get-ChildItem -Path "$env:VCPKG_ROOT/" -Recurse -Filter "*.log" | ForEach-Object {
               Write-Host "$($_.FullName):"
               Write-Host "======"
