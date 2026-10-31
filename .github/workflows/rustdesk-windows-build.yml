@@ -96,6 +96,16 @@ on:
         type: boolean
         default: false
 
+      # ── 编译选项 ──
+      enable_hwcodec:
+        description: "启用硬件编解码"
+        type: boolean
+        default: false
+      enable_vram:
+        description: "启用显存加速"
+        type: boolean
+        default: false
+
   push:
     tags:
       - "v*"
@@ -248,13 +258,7 @@ jobs:
       # ▼▼▼ 定制参数注入 ▼▼▼
       # ==================================================================
 
-      # ── 注入服务器配置 ──
-      # 实际源码位置（master 分支）：
-      #   服务器地址: libs/hbb_common/src/config.rs → RENDEZVOUS_SERVERS (数组)
-      #   端口:       libs/hbb_common/src/config.rs → RENDEZVOUS_PORT / RELAY_PORT
-      #   公钥:       libs/hbb_common/src/config.rs → RS_PUB_KEY
-      #   固定密码:   flutter/lib/main.dart → Config::set_permanent_password()
-      #   API/中继:   flutter/lib/main.dart → Config::set_option()
+      # ── 注入服务器配置（纯 sed，不用 Python）──
       - name: Inject server config
         if: |
           (github.event_name == 'workflow_dispatch' &&
@@ -267,8 +271,6 @@ jobs:
             inputs.custom_id_port != '' ||
             inputs.custom_relay_port != ''))
         shell: bash
-        env:
-          PYTHONIOENCODING: utf-8
         run: |
           UNI_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_server || '' }}"
           ID_SERVER="${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_server || '' }}"
@@ -280,144 +282,48 @@ jobs:
           RELAY_PORT="${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_port || '' }}"
 
           # 统一地址回退
-          if [ -n "$UNI_SERVER" ]; then
-            [ -z "$ID_SERVER" ]    && ID_SERVER="$UNI_SERVER"
-            [ -z "$RELAY_SERVER" ] && RELAY_SERVER="$UNI_SERVER"
-            [ -z "$API_SERVER" ]   && API_SERVER="http://${UNI_SERVER}"
-            echo "  [Unified] $UNI_SERVER"
-          fi
+          [ -n "$UNI_SERVER" ] && [ -z "$ID_SERVER" ] && ID_SERVER="$UNI_SERVER"
+          [ -n "$UNI_SERVER" ] && [ -z "$RELAY_SERVER" ] && RELAY_SERVER="$UNI_SERVER"
+          [ -n "$UNI_SERVER" ] && [ -z "$API_SERVER" ] && API_SERVER="http://${UNI_SERVER}"
 
-          echo "========== Inject server config =========="
+          echo "=== Inject server config ==="
+          echo "ID_SERVER=$ID_SERVER"
+          echo "RELAY_SERVER=$RELAY_SERVER"
+          echo "API_SERVER=$API_SERVER"
+          echo "PUBLIC_KEY=$PUBLIC_KEY"
+          echo "FIXED_PWD=$FIXED_PWD"
+          echo "ID_PORT=$ID_PORT"
+          echo "RELAY_PORT=$RELAY_PORT"
 
-          # ── 1. 修改 libs/hbb_common/src/config.rs ──
+          # 修改 config.rs
           CONFIG_RS="libs/hbb_common/src/config.rs"
           if [ -f "$CONFIG_RS" ]; then
-            python3 << 'PYEOF'
-          import re, os
-
-          config_rs = os.environ.get("CONFIG_RS", "libs/hbb_common/src/config.rs")
-          id_server = os.environ.get("ID_SERVER", "")
-          id_port = os.environ.get("ID_PORT", "")
-          relay_port = os.environ.get("RELAY_PORT", "")
-          public_key = os.environ.get("PUBLIC_KEY", "")
-
-          with open(config_rs, "r", encoding="utf-8") as f:
-              content = f.read()
-
-          changes = []
-
-          # 服务器地址: RENDEZVOUS_SERVERS 数组
-          if id_server:
-              old = re.search(r'pub const RENDEZVOUS_SERVERS.*?=.*?;', content, re.DOTALL)
-              if old:
-                  new_val = 'pub const RENDEZVOUS_SERVERS: &[&str] = &["' + id_server + '"];'
-                  content = content[:old.start()] + new_val + content[old.end():]
-                  changes.append("ID Server -> " + id_server)
-              else:
-                  changes.append("WARNING: RENDEZVOUS_SERVERS not found")
-
-          # ID 端口: RENDEZVOUS_PORT
-          if id_port:
-              old = re.search(r'pub const RENDEZVOUS_PORT\s*:\s*i32\s*=\s*\d+', content)
-              if old:
-                  new_val = 'pub const RENDEZVOUS_PORT: i32 = ' + id_port
-                  content = content[:old.start()] + new_val + content[old.end():]
-                  changes.append("ID Port -> " + id_port)
-              else:
-                  changes.append("WARNING: RENDEZVOUS_PORT not found")
-
-          # 中继端口: RELAY_PORT
-          if relay_port:
-              old = re.search(r'pub const RELAY_PORT\s*:\s*i32\s*=\s*\d+', content)
-              if old:
-                  new_val = 'pub const RELAY_PORT: i32 = ' + relay_port
-                  content = content[:old.start()] + new_val + content[old.end():]
-                  changes.append("Relay Port -> " + relay_port)
-              else:
-                  changes.append("WARNING: RELAY_PORT not found")
-
-          # 公钥: RS_PUB_KEY
-          if public_key:
-              old = re.search(r'pub const RS_PUB_KEY\s*:\s*&str\s*=\s*"[^"]*"', content)
-              if old:
-                  new_val = 'pub const RS_PUB_KEY: &str = "' + public_key + '"'
-                  content = content[:old.start()] + new_val + content[old.end():]
-                  changes.append("Key -> " + public_key[:10] + "...")
-              else:
-                  changes.append("WARNING: RS_PUB_KEY not found")
-
-          with open(config_rs, "w", encoding="utf-8") as f:
-              f.write(content)
-
-          for c in changes:
-              print("  " + c)
-          PYEOF
-          else
-            echo "  WARNING: $CONFIG_RS not found"
+            [ -n "$ID_SERVER" ] && sed -i 's|pub const RENDEZVOUS_SERVERS.*|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&["'$ID_SERVER'"];|' "$CONFIG_RS" && echo "[OK] ID Server"
+            [ -n "$ID_PORT" ] && sed -i 's|pub const RENDEZVOUS_PORT.*|pub const RENDEZVOUS_PORT: i32 = '$ID_PORT';|' "$CONFIG_RS" && echo "[OK] ID Port"
+            [ -n "$RELAY_PORT" ] && sed -i 's|pub const RELAY_PORT.*|pub const RELAY_PORT: i32 = '$RELAY_PORT';|' "$CONFIG_RS" && echo "[OK] Relay Port"
+            [ -n "$PUBLIC_KEY" ] && sed -i 's|pub const RS_PUB_KEY.*|pub const RS_PUB_KEY: \&str = "'$PUBLIC_KEY'";|' "$CONFIG_RS" && echo "[OK] Public Key"
           fi
 
-          # ── 2. 注入固定密码 + 中继/API 服务器到 Flutter main.dart ──
+          # 修改 main.dart（在 startService 后插入配置代码）
           MAIN_DART="flutter/lib/main.dart"
           if [ -f "$MAIN_DART" ]; then
-            python3 << 'PYEOF'
-          import os
+            INJECT_CODE="    // === Injected config ==="
+            [ -n "$FIXED_PWD" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_permanent_password(\"$FIXED_PWD\");"
+            [ -n "$RELAY_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_option(\"relay-server\", \"$RELAY_SERVER\");"
+            [ -n "$API_SERVER" ] && INJECT_CODE="$INJECT_CODE\n    Config.set_option(\"api-server\", \"$API_SERVER\");"
+            INJECT_CODE="$INJECT_CODE\n    // === End injected ==="
 
-          fixed_pwd = os.environ.get("FIXED_PWD", "")
-          api_server = os.environ.get("API_SERVER", "")
-          relay_server = os.environ.get("RELAY_SERVER", "")
-
-          with open("flutter/lib/main.dart", "r", encoding="utf-8") as f:
-              content = f.read()
-
-          # 在 runMainApp 中 gFFI.serverModel.startService() 之后注入
-          inject_lines = []
-          inject_lines.append("  // === [Injected] Custom server config ===")
-
-          if fixed_pwd:
-              inject_lines.append('  Config.set_permanent_password("' + fixed_pwd + '");')
-              print("  [Password] set")
-
-          if relay_server:
-              inject_lines.append('  Config.set_option("relay-server", "' + relay_server + '");')
-              print("  [Relay] " + relay_server)
-
-          if api_server:
-              inject_lines.append('  Config.set_option("api-server", "' + api_server + '");')
-              print("  [API] " + api_server)
-
-          inject_lines.append("  // === [Injected] End custom config ===")
-          inject_code = "\n".join(inject_lines) + "\n"
-
-          # 在 startService 调用后插入
-          marker = "gFFI.serverModel.startService();"
-          if marker in content:
-              content = content.replace(marker, marker + "\n" + inject_code, 1)
-              print("  [Flutter] injected after startService()")
-          else:
-              # 备选：在 windowManager.setOpacity(1) 前插入
-              marker2 = "windowManager.setOpacity(1);"
-              if marker2 in content:
-                  content = content.replace(marker2, inject_code + "      " + marker2, 1)
-                  print("  [Flutter] injected before setOpacity")
-              else:
-                  print("  WARNING: no injection point found in main.dart")
-
-          with open("flutter/lib/main.dart", "w", encoding="utf-8") as f:
-              f.write(content)
-          PYEOF
-          else
-            echo "  WARNING: $MAIN_DART not found"
+            sed -i "/gFFI.serverModel.startService();/a\\$INJECT_CODE" "$MAIN_DART"
+            echo "[OK] main.dart injected"
           fi
 
-          # ── 3. 验证注入结果 ──
-          echo ""
+          # 验证
           echo "=== Verification ==="
-          grep -n "RENDEZVOUS_SERVERS" "$CONFIG_RS" | head -1
-          grep -n "RENDEZVOUS_PORT" "$CONFIG_RS" | head -1
-          grep -n "RELAY_PORT" "$CONFIG_RS" | head -1
-          grep -n "RS_PUB_KEY" "$CONFIG_RS" | head -1
-          grep -n "set_permanent_password\|relay-server\|api-server" "$MAIN_DART" | head -5
-          echo "========== Done =========="
+          grep "RENDEZVOUS_SERVERS" "$CONFIG_RS" | head -1
+          grep "RENDEZVOUS_PORT" "$CONFIG_RS" | head -1
+          grep "RELAY_PORT" "$CONFIG_RS" | head -1
+          grep "RS_PUB_KEY" "$CONFIG_RS" | head -1
+          grep -A5 "startService" "$MAIN_DART" | head -8
 
       # ── 注入权限选项 ──
       - name: Inject permissions
