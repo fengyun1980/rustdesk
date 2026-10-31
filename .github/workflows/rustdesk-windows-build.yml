@@ -1,67 +1,68 @@
 # =============================================================================
-# RustDesk Windows (x86_64) 云编译 GitHub Actions 工作流（含定制参数）
-# 基于 RustDesk 官方 flutter-build.yml 精简，仅保留 Windows x64 Flutter 构建
+# RustDesk Windows x64 云编译工作流（定制版）
 # =============================================================================
 #
-# 使用方法：
-#   1. 将此文件放入你的 RustDesk Fork 仓库的 .github/workflows/ 目录下
-#   2. 在 GitHub 仓库 Settings → Actions → General 中：
-#      - Workflow permissions 选择 "Read and write permissions"
-#      - 勾选 "Allow GitHub Actions to create and approve pull requests"
-#   3. 手动触发：Actions 页 → 选择此工作流 → Run workflow
-#      填入定制参数后点击 Run workflow
-#   4. 或推送 tag（如 v1.5.1）自动触发（使用 env 中的默认值）
+# 使用方式：
+#   1. 放入 .github/workflows/ 目录
+#   2. Settings → Actions → General → Read and write permissions
+#      勾选 Allow GitHub Actions to create and approve pull requests
+#   3. Actions 页手动 Run workflow，或推送 v* tag 自动触发
 #
-# 编译产物：
-#   - rustdesk-unsigned-windows-x86_64/  未签名的便携版目录
-#   - rustdesk-1.5.1-x86_64.exe         自解压安装包（未签名）
-#
-# 预计编译时间：30-50 分钟（首次编译较慢，后续有缓存会快一些）
+# 已知修复：
+#   - bridge 生成用 Flutter 3.22.3 + extended_text 降级到 13.0.0
+#   - RustDeskTempTopMostWindow 从独立仓库 clone
+#   - vcpkg 实时输出（不缓冲）
+#   - 托盘注入用 bash+python 避免 PowerShell 转义/编码问题
+#   - Flutter 引擎目录自动创建
+#   - Rust 1.81 兼容最新源码
 # =============================================================================
 
 name: Build RustDesk Windows x64
 
 on:
-  # 手动触发（含定制参数）
   workflow_dispatch:
     inputs:
-      # ── 基础发布选项 ──
+      # ── 基础选项 ──
       upload_release:
-        description: "是否上传到 Release"
+        description: "上传到 Release"
         type: boolean
         default: true
       tag_name:
-        description: "Release 标签名（如 v1.5.1）"
+        description: "Release 标签名"
         type: string
         default: "nightly"
+      rustdesk_version:
+        description: "RustDesk 源码 tag（如 1.5.1，留空用 master）"
+        type: string
+        default: ""
 
       # ── 服务器定制 ──
       custom_server:
-        description: "统一服务器地址（填一个域名/IP，自动应用到 ID、中继、API 服务器。不加 http://）"
+        description: "统一服务器地址（自动应用到 ID/中继/API，不加 http://）"
         type: string
         default: "192.168.51.7"
       custom_id_server:
-        description: "ID 服务器地址（仅当与统一地址不同时填写）"
+        description: "ID 服务器（仅当与统一地址不同时填）"
         type: string
         default: ""
       custom_relay_server:
-        description: "中继服务器地址（仅当与统一地址不同时填写）"
+        description: "中继服务器（仅当与统一地址不同时填）"
         type: string
         default: ""
       custom_api_server:
-        description: "API 服务器地址（仅当与统一地址不同时填写，需加 http://）"
+        description: "API 服务器（仅当与统一地址不同时填，需加 http://）"
         type: string
         default: "http://192.168.51.7:21114"
       custom_public_key:
-        description: "服务器公钥（由服务端部署后生成）"
+        description: "服务器公钥"
         type: string
         default: "oKIFXU23dMtEjjsPDTPcbFK4xlCxE9EfIu33+i0CppM="
       custom_fixed_password:
-        description: "固定密码（客户端同时使用固定密码与随机密码）"
+        description: "固定密码"
         type: string
         default: "@1979"
 
-      # ── 端口定制（留空使用默认值）──
+      # ── 端口定制 ──
       custom_id_port:
         description: "ID 服务器端口（留空默认 21116）"
         type: string
@@ -73,47 +74,43 @@ on:
 
       # ── 权限选项 ──
       allow_remote_config:
-        description: "允许远程修改配置（连接后对方可改服务器设置）"
+        description: "允许远程修改配置"
         type: boolean
         default: false
       hide_connection_window:
-        description: "隐藏连接管理窗口（极简模式）"
+        description: "隐藏连接管理窗口"
         type: boolean
         default: false
       enable_sos_mode:
-        description: "启用 SOS 版本（仅显示 ID 和密码）"
+        description: "启用 SOS 版本"
         type: boolean
         default: false
 
+      # ── 托盘选项 ──
       hide_tray_icon:
-        description: "隐藏系统托盘图标（运行时不显示托盘，安装时不创建自启快捷方式）"
+        description: "隐藏系统托盘图标"
         type: boolean
         default: true
       disable_tray_startup:
-        description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
+        description: "禁止开机自启"
         type: boolean
         default: false
 
       # ── 编译选项 ──
       enable_hwcodec:
-        description: "启用硬件编解码（hwcodec）"
+        description: "启用硬件编解码"
         type: boolean
         default: false
       enable_vram:
-        description: "启用显存加速（vram，仅 Windows x64）"
+        description: "启用显存加速"
         type: boolean
         default: false
-      rustdesk_version:
-        description: "RustDesk 源码版本标签（如 1.5.1，留空则用 master 分支）"
-        type: string
-        default: ""
 
-  # 推送 tag 时自动触发（使用 env 中的默认值）
   push:
     tags:
       - "v*"
 
-# ─── 环境变量（tag 触发时的默认值）────────────────────────────────────────────
+# ─── 环境变量 ───────────────────────────────────────────────────────────────
 env:
   RUST_VERSION: "1.81"
   FLUTTER_VERSION: "3.24.5"
@@ -122,41 +119,37 @@ env:
   VERSION: "1.5.1"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
-# ─── 权限 ───────────────────────────────────────────────────────────────────
 permissions:
   contents: write
   actions: read
 
-# ─── 任务定义 ───────────────────────────────────────────────────────────────
+# =============================================================================
 jobs:
-  # =========================================================================
-  # 第 1 步：生成 Flutter-Rust Bridge 文件
-  # =========================================================================
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1: 生成 Flutter-Rust Bridge
+  # ───────────────────────────────────────────────────────────────────────────
   generate-bridge:
-    name: Generate Flutter-Rust Bridge
+    name: Generate Bridge
     runs-on: ubuntu-22.04
     env:
       CARGO_EXPAND_VERSION: "1.0.95"
-      FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
       BRIDGE_FLUTTER_VERSION: "3.22.3"
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rustdesk_version || '' }}
 
       - name: Install prerequisites
         run: |
-          sudo apt-get install ca-certificates -y
           sudo apt-get update -y
           sudo apt-get install -y \
-            clang cmake curl gcc git g++ \
+            clang cmake curl gcc g++ git \
             libclang-dev libgtk-3-dev llvm-dev \
             nasm ninja-build pkg-config wget
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: x86_64-unknown-linux-gnu
@@ -164,31 +157,28 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: bridge-ubuntu-22.04
+          prefix-key: bridge-ubuntu
 
-      - name: Cache bridge
-        uses: actions/cache@v3
+      - uses: actions/cache@v3
         with:
           path: /tmp/flutter_rust_bridge
           key: bridge-${{ env.BRIDGE_FLUTTER_VERSION }}
 
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.BRIDGE_FLUTTER_VERSION }}
           cache: true
 
-      - name: Install flutter_rust_bridge_codegen and cargo-expand
+      - name: Install codegen tools
         run: |
           cargo install cargo-expand --version ${{ env.CARGO_EXPAND_VERSION }} --locked
-          cargo install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --features "uuid" --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features "uuid" --locked
 
       - name: Flutter pub get
         shell: bash
         run: |
-          # Flutter 3.22.3 的 Dart SDK 是 3.4.4，但 extended_text 14.0.0 需要 Dart >=3.5.0
-          # 降级 extended_text 到 13.0.0 以兼容
+          # 降级 extended_text 以兼容 Dart 3.4.4（Flutter 3.22.3）
           sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml
           pushd flutter && flutter pub get && popd
 
@@ -200,8 +190,7 @@ jobs:
             --c-output ./flutter/macos/Runner/bridge_generated.h
           cp ./flutter/macos/Runner/bridge_generated.h ./flutter/ios/Runner/bridge_generated.h
 
-      - name: Upload bridge artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: bridge-artifact
           path: |
@@ -212,72 +201,65 @@ jobs:
             ./flutter/macos/Runner/bridge_generated.h
             ./flutter/ios/Runner/bridge_generated.h
 
-  # =========================================================================
-  # 第 2 步：编译 RustDeskTempTopMostWindow（置顶窗口组件）
-  # =========================================================================
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2: 编译 RustDeskTempTopMostWindow（独立仓库）
+  # ───────────────────────────────────────────────────────────────────────────
   build-topmost-window:
-    name: Build RustDeskTempTopMostWindow
+    name: Build TopMostWindow
     runs-on: windows-2022
     env:
       build_output_dir: RustDeskTempTopMostWindow/WindowInjection/x64/Release
     steps:
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x64
 
-      - name: Download the source code
+      - name: Clone and build
         run: |
           git clone https://github.com/rustdesk-org/RustDeskTempTopMostWindow RustDeskTempTopMostWindow
-
-      - name: Build the project
-        run: |
           cd RustDeskTempTopMostWindow
           git checkout ecd8d6a139eee76845ea66423fb739af450fda90
           msbuild WindowInjection/WindowInjection.vcxproj -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: topmostwindow-artifacts-x64
           path: ./${{ env.build_output_dir }}/WindowInjection.dll
 
-  # =========================================================================
-  # 第 3 步：编译 RustDesk Windows x64（核心任务）
-  # =========================================================================
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3: 编译 RustDesk Windows x64
+  # ───────────────────────────────────────────────────────────────────────────
   build-windows:
     name: Build RustDesk Windows x64
     needs: [generate-bridge, build-topmost-window]
     runs-on: windows-2022
     steps:
-      # ── 缓存环境变量 ──
-      - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@v6
+
+      # ── 环境变量 ──
+      - uses: actions/github-script@v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       # ── 拉取源码 ──
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rustdesk_version || '' }}
 
-      # ── 恢复 Bridge 文件 ──
-      - name: Restore bridge files
-        uses: actions/download-artifact@v4
+      # ── 恢复 Bridge ──
+      - uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
 
       # ==================================================================
-      # ▼▼▼ 定制参数注入：编译前修改源码 ▼▼▼
+      # ▼▼▼ 定制参数注入 ▼▼▼
       # ==================================================================
 
-      # ── 注入服务器地址、公钥、密码、端口 ──
-      - name: Inject custom server configuration
+      # ── 注入服务器配置 ──
+      - name: Inject server config
         if: |
           (github.event_name == 'workflow_dispatch' &&
            (inputs.custom_server != '' ||
@@ -290,7 +272,6 @@ jobs:
             inputs.custom_relay_port != ''))
         shell: pwsh
         run: |
-          # ── 读取输入参数（tag 触发时为空，跳过注入）──
           $uniServer    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_server || '' }}"
           $idServer     = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_server || '' }}"
           $relayServer  = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_server || '' }}"
@@ -300,85 +281,74 @@ jobs:
           $idPort       = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_id_port || '' }}"
           $relayPort    = "${{ github.event_name == 'workflow_dispatch' && inputs.custom_relay_port || '' }}"
 
-          # ── 统一服务器地址回退：单独字段为空时使用统一地址 ──
+          # 统一地址回退
           if ($uniServer -ne "") {
             if ($idServer -eq "")    { $idServer    = $uniServer }
             if ($relayServer -eq "") { $relayServer = $uniServer }
             if ($apiServer -eq "")   { $apiServer   = "http://$uniServer" }
-            Write-Host "  [Unified Server] 使用统一地址: $uniServer"
+            Write-Host "  [Unified] $uniServer"
           }
 
-          Write-Host "========== 开始注入定制参数 =========="
+          Write-Host "========== Inject server config =========="
 
-          # ── 1. 修改 src/common.rs：注入服务器地址和端口 ──
+          # 1. src/common.rs: 服务器地址和端口
           $commonFile = "src/common.rs"
           $commonContent = Get-Content $commonFile -Raw -Encoding UTF8
 
           if ($idServer -ne "") {
-            # 替换默认的 ID 服务器地址
             $commonContent = $commonContent -replace '("default.*?server.*?)(rustdesk\.com)', "`${1}$idServer"
-            # 如果找不到默认值，尝试在 SERVERS 数组中添加
-            Write-Host "  [ID Server] 已设置: $idServer"
+            Write-Host "  [ID Server] $idServer"
           }
-
           if ($relayServer -ne "") {
-            Write-Host "  [Relay Server] 已设置: $relayServer"
+            Write-Host "  [Relay] $relayServer"
           }
-
           if ($idPort -ne "") {
             $commonContent = $commonContent -replace '(DEFAULT_PORT.*?=\s*)\d+', "`${1}$idPort"
-            Write-Host "  [ID Port] 已设置: $idPort"
+            Write-Host "  [ID Port] $idPort"
           }
-
           if ($relayPort -ne "") {
             $commonContent = $commonContent -replace '(RELAY_PORT.*?=\s*)\d+', "`${1}$relayPort"
-            Write-Host "  [Relay Port] 已设置: $relayPort"
+            Write-Host "  [Relay Port] $relayPort"
           }
-
           Set-Content $commonFile -Value $commonContent -Encoding UTF8 -NoNewline
 
-          # ── 2. 修改 libs/hbb_common/src/config.rs：注入公钥 ──
+          # 2. 公钥
           if ($publicKey -ne "") {
             $configFile = "libs/hbb_common/src/config.rs"
             if (Test-Path $configFile) {
-              $configContent = Get-Content $configFile -Raw -Encoding UTF8
-              # 注入公钥到 RENDEZVOUS_SERVERS 或 key 常量
-              $configContent = $configContent -replace '(pub\s+const\s+RENDEZVOUS_SERVER.*?")(")', "`${1}$publicKey`${2}"
-              Set-Content $configFile -Value $configContent -Encoding UTF8 -NoNewline
-              Write-Host "  [Public Key] 已设置: ${publicKey.Substring(0, [Math]::Min(10, $publicKey.Length))}..."
+              $c = Get-Content $configFile -Raw -Encoding UTF8
+              $c = $c -replace '(pub\s+const\s+RENDEZVOUS_SERVER.*?")(")', "`${1}$publicKey`${2}"
+              Set-Content $configFile -Value $c -Encoding UTF8 -NoNewline
+              Write-Host "  [Key] set"
             }
           }
 
-          # ── 3. 修改 src/server/connection.rs：注入固定密码 ──
+          # 3. 固定密码
           if ($fixedPwd -ne "") {
             $connFile = "src/server/connection.rs"
             if (Test-Path $connFile) {
-              $connContent = Get-Content $connFile -Raw -Encoding UTF8
-              # 在 password 相关配置处注入固定密码
-              # RustDesk 使用 OPTION_ALLOW_AUTO_DISCONNECT 和 OPTION_KEY 等
-              $connContent = $connContent -replace '("password"\s*,\s*")(")', "`${1}$fixedPwd`${2}"
-              Set-Content $connFile -Value $connContent -Encoding UTF8 -NoNewline
-              Write-Host "  [Fixed Password] 已设置"
+              $c = Get-Content $connFile -Raw -Encoding UTF8
+              $c = $c -replace '("password"\s*,\s*")(")', "`${1}$fixedPwd`${2}"
+              Set-Content $connFile -Value $c -Encoding UTF8 -NoNewline
+              Write-Host "  [Password] set"
             }
           }
 
-          # ── 4. 修改 API 服务器（Flutter 端）──
+          # 4. API 服务器
           if ($apiServer -ne "") {
-            # Flutter 端的 API 服务器通过运行时配置，编译时无法直接注入
-            # 但可以通过修改默认值来实现
             $apiFile = "flutter/lib/models/platform/web_platform.dart"
             if (Test-Path $apiFile) {
-              $apiContent = Get-Content $apiFile -Raw -Encoding UTF8
-              $apiContent = $apiContent -replace '(apiServer.*?=\s*["''])([^"'']*?)(["''])', "`${1}$apiServer`${3}"
-              Set-Content $apiFile -Value $apiContent -Encoding UTF8 -NoNewline
+              $c = Get-Content $apiFile -Raw -Encoding UTF8
+              $c = $c -replace '(apiServer.*?=\s*["''])([^"'']*?)(["''])', "`${1}$apiServer`${3}"
+              Set-Content $apiFile -Value $c -Encoding UTF8 -NoNewline
             }
-            Write-Host "  [API Server] 已设置: $apiServer"
+            Write-Host "  [API] $apiServer"
           }
 
-          Write-Host "========== 定制参数注入完成 =========="
+          Write-Host "========== Done =========="
 
       # ── 注入权限选项 ──
-      - name: Inject permission options
+      - name: Inject permissions
         if: |
           (github.event_name == 'workflow_dispatch' &&
            (inputs.allow_remote_config ||
@@ -386,48 +356,29 @@ jobs:
             inputs.enable_sos_mode))
         shell: pwsh
         run: |
-          $allowRemoteConfig    = "${{ github.event_name == 'workflow_dispatch' && inputs.allow_remote_config || 'false' }}"
-          $hideConnWindow       = "${{ github.event_name == 'workflow_dispatch' && inputs.hide_connection_window || 'false' }}"
-          $enableSos            = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_sos_mode || 'false' }}"
+          $allowRemoteConfig = "${{ github.event_name == 'workflow_dispatch' && inputs.allow_remote_config || 'false' }}"
+          $hideConnWindow    = "${{ github.event_name == 'workflow_dispatch' && inputs.hide_connection_window || 'false' }}"
+          $enableSos         = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_sos_mode || 'false' }}"
 
-          Write-Host "========== 开始注入权限选项 =========="
-
-          # ── 允许远程修改配置 ──
-          if ($allowRemoteConfig -eq "true") {
-            $optFile = "src/server/connection.rs"
-            if (Test-Path $optFile) {
-              $optContent = Get-Content $optFile -Raw -Encoding UTF8
-              $optContent = $optContent -replace '(OPTION_ALLOW_REMOTE_CONFIG.*?=\s*)false', '${1}true'
-              Set-Content $optFile -Value $optContent -Encoding UTF8 -NoNewline
-              Write-Host "  [Remote Config] 已启用"
+          $optFile = "src/server/connection.rs"
+          if (Test-Path $optFile) {
+            $c = Get-Content $optFile -Raw -Encoding UTF8
+            if ($allowRemoteConfig -eq "true") {
+              $c = $c -replace '(OPTION_ALLOW_REMOTE_CONFIG.*?=\s*)false', '${1}true'
+              Write-Host "  [Remote Config] enabled"
             }
+            if ($hideConnWindow -eq "true") {
+              $c = $c -replace '(OPTION_HIDE_CM_WINDOW.*?=\s*)false', '${1}true'
+              Write-Host "  [Hide CM] enabled"
+            }
+            if ($enableSos -eq "true") {
+              $c = $c -replace '(OPTION_ENABLE_SOS.*?=\s*)false', '${1}true'
+              Write-Host "  [SOS] enabled"
+            }
+            Set-Content $optFile -Value $c -Encoding UTF8 -NoNewline
           }
 
-          # ── 隐藏连接管理窗口 ──
-          if ($hideConnWindow -eq "true") {
-            $optFile = "src/server/connection.rs"
-            if (Test-Path $optFile) {
-              $optContent = Get-Content $optFile -Raw -Encoding UTF8
-              $optContent = $optContent -replace '(OPTION_HIDE_CM_WINDOW.*?=\s*)false', '${1}true'
-              Set-Content $optFile -Value $optContent -Encoding UTF8 -NoNewline
-              Write-Host "  [Hide Connection Window] 已启用"
-            }
-          }
-
-          # ── SOS 模式 ──
-          if ($enableSos -eq "true") {
-            $optFile = "src/server/connection.rs"
-            if (Test-Path $optFile) {
-              $optContent = Get-Content $optFile -Raw -Encoding UTF8
-              $optContent = $optContent -replace '(OPTION_ENABLE_SOS.*?=\s*)false', '${1}true'
-              Set-Content $optFile -Value $optContent -Encoding UTF8 -NoNewline
-              Write-Host "  [SOS Mode] 已启用"
-            }
-          }
-
-          Write-Host "========== 权限选项注入完成 =========="
-
-      # ── 注入托盘相关选项（使用 bash 避免 PowerShell 转义问题）──
+      # ── 注入托盘选项（bash + python 避免 PowerShell 转义/编码问题）──
       - name: Inject tray options
         if: |
           (github.event_name == 'workflow_dispatch' &&
@@ -440,107 +391,93 @@ jobs:
           HIDE_TRAY="${{ github.event_name == 'workflow_dispatch' && inputs.hide_tray_icon || 'false' }}"
           DISABLE_STARTUP="${{ github.event_name == 'workflow_dispatch' && inputs.disable_tray_startup || 'false' }}"
 
-          echo "========== 开始注入托盘选项 =========="
+          echo "========== Inject tray options =========="
 
           WIN_FILE="src/platform/windows.rs"
 
-          # ── 1. 禁止开机自启 ──
-          # 把 tray_shortcuts 的 else 分支替换为 "".to_owned()，这样不创建 Startup 快捷方式
+          # 1. 禁止开机自启
           if [ "$DISABLE_STARTUP" = "true" ] || [ "$HIDE_TRAY" = "true" ]; then
             if [ -f "$WIN_FILE" ]; then
-              # 找到 "let tray_shortcuts = if config::is_outgoing_only()" 这行，
-              # 把整个 if/else 块替换为简单的空字符串赋值
-              python3 -c "
-          import re, sys
-          with open('$WIN_FILE', 'r', encoding='utf-8') as f:
+              python3 << 'PYEOF'
+          import re
+          with open("src/platform/windows.rs", "r", encoding="utf-8") as f:
               content = f.read()
-          # 匹配: let tray_shortcuts = if config::is_outgoing_only() { ... } else { ... };
-          # 替换为: let tray_shortcuts = String::new();
           pattern = r'let tray_shortcuts = if config::is_outgoing_only\(\).*?;\n'
           replacement = 'let tray_shortcuts = String::new();\n'
-          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-          with open('$WIN_FILE', 'w', encoding='utf-8') as f:
-              f.write(new_content)
-          print('  [Disable Tray Startup] 已禁止开机自启')
-          "
+          content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          with open("src/platform/windows.rs", "w", encoding="utf-8") as f:
+              f.write(content)
+          print("  [Startup] disabled")
+          PYEOF
             fi
           fi
 
-          # ── 2. 隐藏运行时托盘图标 ──
-          # 在 install_me() 的 after_install 命令字符串末尾追加一条 reg add 命令
+          # 2. 隐藏运行时托盘
           if [ "$HIDE_TRAY" = "true" ]; then
             if [ -f "$WIN_FILE" ]; then
-              python3 -c "
+              python3 << 'PYEOF'
           import re
-          with open('$WIN_FILE', 'r', encoding='utf-8') as f:
+          with open("src/platform/windows.rs", "r", encoding="utf-8") as f:
               content = f.read()
 
-          # 在 get_after_install 函数返回的格式字符串末尾追加 reg add 命令
-          # 找到函数末尾的 format! 宏调用中的最后一个字符串拼接点
-          # 简单方案：在 install_me 函数中找到 'run_cmds(' 调用，在其前面插入
-          hide_tray_code = '''
-          // [Injected] Set hide-tray option in registry
+          hide_code = '''
+          // [Injected] Set hide-tray in registry
           {
-              let hide_tray_cmd = format!(\"chcp 65001 && reg add HKEY_LOCAL_MACHINE\\\\Software\\\\{} /f /v hide-tray /t REG_SZ /d \\\"Y\\\"\", app_name);
-              let _ = run_cmds(hide_tray_cmd, false, \"hide_tray\");
+              let cmd = format!("chcp 65001 && reg add HKEY_LOCAL_MACHINE\\\\Software\\\\{} /f /v hide-tray /t REG_SZ /d \\"Y\\"", app_name);
+              let _ = run_cmds(cmd, false, "hide_tray");
           }
           '''
-          # 在 install_me 函数中找到 'run_cmds(' 前插入
           pattern = r'(run_cmds\(\s*InstallCommands)'
-          new_content = re.sub(pattern, lambda m: hide_tray_code + '\n          ' + m.group(1), content, count=1)
-          with open('$WIN_FILE', 'w', encoding='utf-8') as f:
-              f.write(new_content)
-          print('  [Hide Tray Icon] 已注入运行时隐藏托盘选项')
-          "
+          content = re.sub(pattern, lambda m: hide_code + "\n          " + m.group(1), content, count=1)
+          with open("src/platform/windows.rs", "w", encoding="utf-8") as f:
+              f.write(content)
+          print("  [Hide Tray] registry injected")
+          PYEOF
             fi
 
-            # ── 3. Flutter 端：在 main.dart 中注入运行时隐藏托盘逻辑 ──
+            # 3. Flutter 端隐藏托盘
             MAIN_DART="flutter/lib/main.dart"
             if [ -f "$MAIN_DART" ]; then
-              python3 -c "
-          with open('$MAIN_DART', 'r', encoding='utf-8') as f:
+              python3 << 'PYEOF'
+          with open("flutter/lib/main.dart", "r", encoding="utf-8") as f:
               content = f.read()
-          # 在 windowManager.setOpacity(1) 前插入隐藏托盘调用
-          inject_code = '''      // [Injected] Hide tray icon at runtime
+          inject = '''      // [Injected] Hide tray icon at runtime
                 try { await bind.mainSetLocalOption(key: 'hide-tray', value: 'Y'); } catch (_) {}
           '''
-          content = content.replace('windowManager.setOpacity(1);', inject_code + 'windowManager.setOpacity(1);', 1)
-          with open('$MAIN_DART', 'w', encoding='utf-8') as f:
+          content = content.replace('windowManager.setOpacity(1);', inject + 'windowManager.setOpacity(1);', 1)
+          with open("flutter/lib/main.dart", "w", encoding="utf-8") as f:
               f.write(content)
-          print('  [Flutter] 已在 main.dart 注入运行时隐藏托盘调用')
-          "
+          print("  [Flutter] tray hidden")
+          PYEOF
             fi
           fi
 
-          echo "========== 托盘选项注入完成 =========="
+          echo "========== Done =========="
 
       # ==================================================================
       # ▲▲▲ 定制参数注入结束 ▲▲▲
       # ==================================================================
 
-      # ── 安装 LLVM / Clang ──
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v2
+      # ── 安装 LLVM ──
+      - uses: KyleMayes/install-llvm-action@v2
         with:
           version: ${{ env.LLVM_VERSION }}
 
       # ── 安装 Flutter ──
-      - name: Install Flutter
+      - uses: subosito/flutter-action@v2
         id: flutter
-        uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
           architecture: x64
 
-      # ── 替换 Flutter 引擎为 RustDesk 定制引擎 ──
-      - name: Replace engine with RustDesk custom Flutter engine
+      # ── 替换 RustDesk 定制引擎 ──
+      - name: Replace Flutter engine
         run: |
           flutter doctor -v
           flutter precache --windows
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-
           $engineDir = "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release"
           if (-not (Test-Path $engineDir)) {
             New-Item -ItemType Directory -Force -Path $engineDir | Out-Null
@@ -555,25 +492,22 @@ jobs:
           cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR/" 2>/dev/null || true
           cd "$FLUTTER_DIR"
           if [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]]; then
-            git apply flutter_3.24.4_dropdown_menu_enableFilter.diff 2>/dev/null || echo "Patch may already be applied or not found, continuing..."
+            git apply flutter_3.24.4_dropdown_menu_enableFilter.diff 2>/dev/null || echo "Patch skipped"
           fi
 
       # ── 安装 Rust 工具链 ──
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: x86_64-pc-windows-msvc
           components: "rustfmt"
 
-      # ── Rust 缓存 ──
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: windows-2022
 
-      # ── 安装 vcpkg 并编译依赖 ──
-      - name: Setup vcpkg with GitHub Actions binary cache
-        uses: lukka/run-vcpkg@v11
+      # ── vcpkg ──
+      - uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
@@ -585,38 +519,35 @@ jobs:
         run: |
           & $env:VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT/installed"
           if (-not $?) {
-            Write-Host "vcpkg install failed, dumping logs..."
+            Write-Host "vcpkg failed, dumping logs..."
             Get-ChildItem -Path "$env:VCPKG_ROOT/" -Recurse -Filter "*.log" | ForEach-Object {
               Write-Host "$($_.FullName):"
               Write-Host "======"
               Get-Content $_.FullName
               Write-Host "======"
-              Write-Host ""
             }
             exit 1
           }
 
-      # ── 编译 RustDesk（根据定制参数动态构建命令行）──
+      # ── 编译 RustDesk ──
       - name: Build RustDesk
         shell: pwsh
         run: |
           $buildArgs = "--portable --flutter --skip-portable-pack"
 
-          # 硬件编解码
-          $hwcodec = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_hwcodec || 'true' }}"
+          $hwcodec = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_hwcodec || 'false' }}"
           if ($hwcodec -eq "true") { $buildArgs += " --hwcodec" }
 
-          # 显存加速
-          $vram = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_vram || 'true' }}"
+          $vram = "${{ github.event_name == 'workflow_dispatch' && inputs.enable_vram || 'false' }}"
           if ($vram -eq "true") { $buildArgs += " --vram" }
 
-          Write-Host "Build command: python3 .\build.py $buildArgs"
+          Write-Host "Build: python3 .\build.py $buildArgs"
           Invoke-Expression "python3 .\build.py $buildArgs"
 
           Move-Item ./flutter/build/windows/x64/runner/Release ./rustdesk
 
       # ── 下载虚拟显示器驱动 ──
-      - name: Download usbmmidd_v2 (virtual display driver)
+      - name: Download virtual display driver
         run: |
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath .
@@ -631,24 +562,20 @@ jobs:
           Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
           Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
           Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
-          $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
-          $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
-          $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
-          $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-          if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-            Write-Output "Checksums match, extracting printer driver."
+          $cd = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
+          $dd = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+          $ca = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
+          $da = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
+          if ($cd -eq $dd.Hash -and $ca -eq $da.Hash) {
             Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
             New-Item -ItemType Directory -Force ./rustdesk/drivers | Out-Null
             Move-Item -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
             Expand-Archive printer_driver_adapter.zip -DestinationPath .
             Move-Item -Force .\printer_driver_adapter.dll ./rustdesk
-          } else {
-            Write-Output "Checksums do not match, skipping printer driver."
           }
 
       # ── 下载置顶窗口组件 ──
-      - name: Download RustDeskTempTopMostWindow artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: topmostwindow-artifacts-x64
           path: "./rustdesk"
@@ -659,22 +586,18 @@ jobs:
         shell: bash
         run: |
           runner_res=$(find . -name "Runner.res")
-          if [ -z "$runner_res" ]; then
-            echo "Runner.res: not found"
-          else
-            echo "Runner.res: $runner_res"
+          if [ -n "$runner_res" ]; then
             cp "$runner_res" ./libs/portable/Runner.res
           fi
 
-      # ── 上传未签名的 Windows 目录 ──
-      - name: Upload unsigned Windows build
-        uses: actions/upload-artifact@v4
+      # ── 上传未签名构建 ──
+      - uses: actions/upload-artifact@v4
         with:
           name: rustdesk-unsigned-windows-x86_64
           path: rustdesk
 
       # ── 构建自解压安装包 ──
-      - name: Build self-extracted executable
+      - name: Build self-extracted EXE
         shell: bash
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
@@ -686,13 +609,12 @@ jobs:
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
       # ── 上传安装包 ──
-      - name: Upload self-extracted EXE
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: rustdesk-${{ env.VERSION }}-x86_64.exe
           path: ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
-      # ── 发布到 Release（可选）──
+      # ── 发布到 Release ──
       - name: Publish to Release
         if: |
           (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
