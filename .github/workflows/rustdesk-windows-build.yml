@@ -29,7 +29,7 @@ on:
       upload_release:
         description: "是否上传到 Release"
         type: boolean
-        default: false
+        default: true
       tag_name:
         description: "Release 标签名（如 v1.5.1）"
         type: string
@@ -88,7 +88,7 @@ on:
       hide_tray_icon:
         description: "隐藏系统托盘图标（运行时不显示托盘，安装时不创建自启快捷方式）"
         type: boolean
-        default: false
+        default: true
       disable_tray_startup:
         description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
         type: boolean
@@ -434,6 +434,8 @@ jobs:
            (inputs.hide_tray_icon ||
             inputs.disable_tray_startup))
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           HIDE_TRAY="${{ github.event_name == 'workflow_dispatch' && inputs.hide_tray_icon || 'false' }}"
           DISABLE_STARTUP="${{ github.event_name == 'workflow_dispatch' && inputs.disable_tray_startup || 'false' }}"
