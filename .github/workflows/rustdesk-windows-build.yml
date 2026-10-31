@@ -96,16 +96,6 @@ on:
         type: boolean
         default: false
 
-      # ── 编译选项 ──
-      enable_hwcodec:
-        description: "启用硬件编解码"
-        type: boolean
-        default: false
-      enable_vram:
-        description: "启用显存加速"
-        type: boolean
-        default: false
-
   push:
     tags:
       - "v*"
