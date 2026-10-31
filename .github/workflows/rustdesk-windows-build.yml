@@ -29,7 +29,7 @@ on:
       upload_release:
         description: "是否上传到 Release"
         type: boolean
-        default: true
+        default: false
       tag_name:
         description: "Release 标签名（如 v1.5.1）"
         type: string
@@ -39,15 +39,15 @@ on:
       custom_id_server:
         description: "ID 服务器地址（域名或 IP，不加 http://）"
         type: string
-        default: "192.168.51.7"
+        default: ""
       custom_relay_server:
         description: "中继服务器地址（域名或 IP，不加 http://）"
         type: string
-        default: "192.168.51.7"
+        default: ""
       custom_api_server:
         description: "API 服务器地址（必须加 http:// 或 https://）"
         type: string
-        default: "http://192.168.51.7:21114"
+        default: ""
       custom_public_key:
         description: "服务器公钥（由服务端部署后生成）"
         type: string
@@ -84,7 +84,7 @@ on:
       hide_tray_icon:
         description: "隐藏系统托盘图标（运行时不显示托盘，安装时不创建自启快捷方式）"
         type: boolean
-        default: true
+        default: false
       disable_tray_startup:
         description: "禁止开机自启（不创建 Startup 托盘快捷方式）"
         type: boolean
@@ -413,62 +413,91 @@ jobs:
 
           Write-Host "========== 权限选项注入完成 =========="
 
-      # ── 注入托盘相关选项 ──
+      # ── 注入托盘相关选项（使用 bash 避免 PowerShell 转义问题）──
       - name: Inject tray options
         if: |
           (github.event_name == 'workflow_dispatch' &&
            (inputs.hide_tray_icon ||
             inputs.disable_tray_startup))
-        shell: pwsh
+        shell: bash
         run: |
-          $hideTrayIcon       = "${{ github.event_name == 'workflow_dispatch' && inputs.hide_tray_icon || 'false' }}"
-          $disableTrayStartup = "${{ github.event_name == 'workflow_dispatch' && inputs.disable_tray_startup || 'false' }}"
+          HIDE_TRAY="${{ github.event_name == 'workflow_dispatch' && inputs.hide_tray_icon || 'false' }}"
+          DISABLE_STARTUP="${{ github.event_name == 'workflow_dispatch' && inputs.disable_tray_startup || 'false' }}"
 
-          Write-Host "========== 开始注入托盘选项 =========="
+          echo "========== 开始注入托盘选项 =========="
 
-          # ── 读取 src/platform/windows.rs ──
-          $winFile = "src/platform/windows.rs"
-          if (Test-Path $winFile) {
-            $winContent = Get-Content $winFile -Raw -Encoding UTF8
+          WIN_FILE="src/platform/windows.rs"
 
-            # ── 1. 禁止开机自启（不创建 Startup 托盘快捷方式）──
-            #    install_me() 中 tray_shortcuts 变量控制是否创建 "{app} Tray.lnk" 到 Startup 目录
-            #    将 tray_shortcuts 强制置空即可阻止自启
-            if ($disableTrayStartup -eq "true" -or $hideTrayIcon -eq "true") {
-              # 把 tray_shortcuts 赋值处改为空字符串
-              # 原代码: let tray_shortcuts = if config::is_outgoing_only() { "".to_owned() } else { ... }
-              $winContent = $winContent -replace '(let tray_shortcuts\s*=\s*if config::is_outgoing_only\(\) \{ ""\.to_owned\(\) \} else \{)[\s\S]*?(\};)', '$1 "".to_owned() $2'
-              Write-Host "  [Disable Tray Startup] 已禁止开机自启（托盘快捷方式已移除）"
-            }
+          # ── 1. 禁止开机自启 ──
+          # 把 tray_shortcuts 的 else 分支替换为 "".to_owned()，这样不创建 Startup 快捷方式
+          if [ "$DISABLE_STARTUP" = "true" ] || [ "$HIDE_TRAY" = "true" ]; then
+            if [ -f "$WIN_FILE" ]; then
+              # 找到 "let tray_shortcuts = if config::is_outgoing_only()" 这行，
+              # 把整个 if/else 块替换为简单的空字符串赋值
+              python3 -c "
+          import re, sys
+          with open('$WIN_FILE', 'r', encoding='utf-8') as f:
+              content = f.read()
+          # 匹配: let tray_shortcuts = if config::is_outgoing_only() { ... } else { ... };
+          # 替换为: let tray_shortcuts = String::new();
+          pattern = r'let tray_shortcuts = if config::is_outgoing_only\(\).*?;\n'
+          replacement = 'let tray_shortcuts = String::new();\n'
+          new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+          with open('$WIN_FILE', 'w', encoding='utf-8') as f:
+              f.write(new_content)
+          print('  [Disable Tray Startup] 已禁止开机自启')
+          "
+            fi
+          fi
 
-            # ── 2. 隐藏运行时托盘图标 ──
-            #    在 install_me() 安装后自动设置 hide-tray 选项，让运行时也不创建托盘
-            if ($hideTrayIcon -eq "true") {
-              # 在 get_after_install() 的末尾追加一条命令，设置注册表选项
-              # 这样安装后客户端读取到该选项就不会初始化 tray_manager
-              $winContent = $winContent -replace '(fn get_after_install\()([\s\S]*?)(^\})',
-                "`$1`$2  // Injected: set hide-tray option in registry`n  let hide_tray_reg = format!(`"reg add HKEY_LOCAL_MACHINE\\Software\\{}` /f /v hide-tray /t REG_SZ /d `"Y`"", app_name);`n`$3"
-              Write-Host "  [Hide Tray Icon] 已注入运行时隐藏托盘选项"
-            }
+          # ── 2. 隐藏运行时托盘图标 ──
+          # 在 install_me() 的 after_install 命令字符串末尾追加一条 reg add 命令
+          if [ "$HIDE_TRAY" = "true" ]; then
+            if [ -f "$WIN_FILE" ]; then
+              python3 -c "
+          import re
+          with open('$WIN_FILE', 'r', encoding='utf-8') as f:
+              content = f.read()
 
-            Set-Content $winFile -Value $winContent -Encoding UTF8 -NoNewline
+          # 在 get_after_install 函数返回的格式字符串末尾追加 reg add 命令
+          # 找到函数末尾的 format! 宏调用中的最后一个字符串拼接点
+          # 简单方案：在 install_me 函数中找到 'run_cmds(' 调用，在其前面插入
+          hide_tray_code = '''
+          // [Injected] Set hide-tray option in registry
+          {
+              let hide_tray_cmd = format!(\"chcp 65001 && reg add HKEY_LOCAL_MACHINE\\\\Software\\\\{} /f /v hide-tray /t REG_SZ /d \\\"Y\\\"\", app_name);
+              let _ = run_cmds(hide_tray_cmd, false, \"hide_tray\");
           }
+          '''
+          # 在 install_me 函数中找到 'run_cmds(' 前插入
+          pattern = r'(run_cmds\(\s*InstallCommands)'
+          replacement = hide_tray_code + '\n          \1'
+          new_content = re.sub(pattern, replacement, content, count=1)
+          with open('$WIN_FILE', 'w', encoding='utf-8') as f:
+              f.write(new_content)
+          print('  [Hide Tray Icon] 已注入运行时隐藏托盘选项')
+          "
+            fi
 
-          # ── 3. Flutter 端：在 main.dart 中注入运行时隐藏托盘逻辑 ──
-          if ($hideTrayIcon -eq "true") {
-            $mainDartFile = "flutter/lib/main.dart"
-            if (Test-Path $mainDartFile) {
-              $dartContent = Get-Content $mainDartFile -Raw -Encoding UTF8
-              # 在 runMainApp 函数的 windowManager.waitUntilReadyToShow 回调开始处注入隐藏托盘调用
-              # 找到 windowManager.setOpacity(1) 并在其前面插入
-              $dartContent = $dartContent -replace '(windowManager\.setOpacity\(1\);)',
-                "// [Injected] Hide tray icon at runtime`n      try { await bind.mainSetLocalOption(key: 'hide-tray', value: 'Y'); } catch (_) {}`n      `$1"
-              Set-Content $mainDartFile -Value $dartContent -Encoding UTF8 -NoNewline
-              Write-Host "  [Flutter] 已在 main.dart 注入运行时隐藏托盘调用"
-            }
-          }
+            # ── 3. Flutter 端：在 main.dart 中注入运行时隐藏托盘逻辑 ──
+            MAIN_DART="flutter/lib/main.dart"
+            if [ -f "$MAIN_DART" ]; then
+              python3 -c "
+          with open('$MAIN_DART', 'r', encoding='utf-8') as f:
+              content = f.read()
+          # 在 windowManager.setOpacity(1) 前插入隐藏托盘调用
+          inject_code = '''      // [Injected] Hide tray icon at runtime
+                try { await bind.mainSetLocalOption(key: 'hide-tray', value: 'Y'); } catch (_) {}
+          '''
+          content = content.replace('windowManager.setOpacity(1);', inject_code + 'windowManager.setOpacity(1);', 1)
+          with open('$MAIN_DART', 'w', encoding='utf-8') as f:
+              f.write(content)
+          print('  [Flutter] 已在 main.dart 注入运行时隐藏托盘调用')
+          "
+            fi
+          fi
 
-          Write-Host "========== 托盘选项注入完成 =========="
+          echo "========== 托盘选项注入完成 =========="
 
       # ==================================================================
       # ▲▲▲ 定制参数注入结束 ▲▲▲
