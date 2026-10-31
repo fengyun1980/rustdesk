@@ -41,18 +41,6 @@ on:
         description: "统一服务器地址（自动应用到 ID/中继/API，不加 http://）"
         type: string
         default: ""
-      custom_id_server:
-        description: "ID 服务器（仅当与统一地址不同时填）"
-        type: string
-        default: ""
-      custom_relay_server:
-        description: "中继服务器（仅当与统一地址不同时填）"
-        type: string
-        default: ""
-      custom_api_server:
-        description: "API 服务器（仅当与统一地址不同时填，需加 http://）"
-        type: string
-        default: ""
       custom_public_key:
         description: "服务器公钥"
         type: string
