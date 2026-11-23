@@ -564,7 +564,7 @@ class ChatModel with ChangeNotifier {
         ChatMessage(
           // dash_chat_2 skips the text container for empty text, which would
           // also hide the custom image widget. Keep a placeholder text.
-          text: text.isEmpty ? '[Image]' : text,
+          text: text.isEmpty ? '图片' : text,
           user: chatUser,
           createdAt: DateTime.now(),
           customProperties: image == null ? null : {'rdImage': image},
@@ -695,7 +695,7 @@ class ChatModel with ChangeNotifier {
     insertMessage(
         key,
         ChatMessage(
-          text: '[Image]',
+          text: '图片',
           user: me,
           createdAt: DateTime.now(),
           customProperties: {'rdImage': data},
