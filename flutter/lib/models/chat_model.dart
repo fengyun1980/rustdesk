@@ -112,14 +112,13 @@ class ChatModel with ChangeNotifier {
   bool get waitingChatScreenshot => _waitingChatScreenshot;
 
   /// Screenshot capture is only available on desktop when we are the
-  /// controlling side (client mode) and a single display is selected.
+  /// controlling side (client mode).
   bool get canSendScreenshot {
     final session = parent.target;
     return !isWeb &&
         !isMobile &&
         session != null &&
-        _currentKey.connId == clientModeID &&
-        session.ffiModel.pi.currentDisplay != kAllDisplayValue;
+        _currentKey.connId == clientModeID;
   }
 
   OverlayEntry? chatIconOverlayEntry;
@@ -634,10 +633,14 @@ class ChatModel with ChangeNotifier {
       return;
     }
     _waitingChatScreenshot = true;
+    final display = session.ffiModel.pi.currentDisplay;
     bind.sessionTakeScreenshot(
-        sessionId: sessionId, display: session.ffiModel.pi.currentDisplay);
+        sessionId: sessionId, display: display < 0 ? 0 : display);
     Timer(const Duration(seconds: 20), () {
-      _waitingChatScreenshot = false;
+      if (_waitingChatScreenshot) {
+        _waitingChatScreenshot = false;
+        showToast(translate('Failed'));
+      }
     });
   }
 
@@ -648,19 +651,27 @@ class ChatModel with ChangeNotifier {
     if (!wasWaiting) return;
     if (msg.isNotEmpty) {
       debugPrint('Take screenshot failed: $msg');
+      showToast(translate('Failed'));
       return;
     }
     final path = await chat_local.createScreenshotTempPath();
-    if (path == null) return;
+    if (path == null) {
+      showToast(translate('Failed'));
+      return;
+    }
     final res = await bind.sessionHandleScreenshot(
         sessionId: sessionId, action: '0:$path');
     if (res.isNotEmpty) {
       debugPrint('Save screenshot failed: $res');
       await chat_local.deleteTempFile(path);
+      showToast(translate('Failed'));
       return;
     }
     final bytes = await chat_local.readTempFileBytes(path);
-    if (bytes == null || bytes.isEmpty) return;
+    if (bytes == null || bytes.isEmpty) {
+      showToast(translate('Failed'));
+      return;
+    }
     await sendImageBytes(bytes);
   }
 
