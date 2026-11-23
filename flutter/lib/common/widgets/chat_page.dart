@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
@@ -106,6 +108,38 @@ class ChatPage extends StatelessWidget implements PageShape {
                     inputOptions: InputOptions(
                       focusNode: chatModel.inputNode,
                       textController: chatModel.textController,
+                      leading: readOnly
+                          ? null
+                          : [
+                              PopupMenuButton<String>(
+                                tooltip: translate('Send image'),
+                                iconSize: 20,
+                                padding: EdgeInsets.zero,
+                                icon: Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                  color: MyTheme.accent,
+                                ),
+                                onSelected: (value) {
+                                  if (value == 'image') {
+                                    chatModel.pickAndSendImages();
+                                  } else if (value == 'screenshot') {
+                                    chatModel.sendScreenshotToChat();
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  PopupMenuItem(
+                                    value: 'image',
+                                    child: Text(translate('Send image')),
+                                  ),
+                                  if (chatModel.canSendScreenshot)
+                                    PopupMenuItem(
+                                      value: 'screenshot',
+                                      child:
+                                          Text(translate('Take screenshot')),
+                                    ),
+                                ],
+                              ),
+                            ],
                       inputTextStyle: TextStyle(
                           fontSize: 14,
                           color: Theme.of(context).textTheme.titleLarge?.color),
@@ -137,21 +171,37 @@ class ChatPage extends StatelessWidget implements PageShape {
                       maxWidth: constraints.maxWidth * 0.7,
                       messageTextBuilder: (message, _, __) {
                         final isOwnMessage = message.user.id.isBlank!;
+                        final image = message.customProperties?['rdImage'];
+                        final children = <Widget>[];
+                        if (image is Uint8List) {
+                          children.add(GestureDetector(
+                            onTap: () => _showImagePreview(context, image),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                image,
+                                width: constraints.maxWidth * 0.62,
+                                fit: BoxFit.contain,
+                                gaplessPlayback: true,
+                              ),
+                            ),
+                          ));
+                        } else {
+                          children.add(Text(message.text,
+                              style: TextStyle(color: Colors.white)));
+                        }
+                        children.add(Text(
+                          "${message.createdAt.hour}:${message.createdAt.minute.toString().padLeft(2, '0')}",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                          ),
+                        ).marginOnly(top: 3));
                         return Column(
                           crossAxisAlignment: isOwnMessage
                               ? CrossAxisAlignment.end
                               : CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(message.text,
-                                style: TextStyle(color: Colors.white)),
-                            Text(
-                              "${message.createdAt.hour}:${message.createdAt.minute.toString().padLeft(2, '0')}",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                              ),
-                            ).marginOnly(top: 3),
-                          ],
+                          children: children,
                         );
                       },
                       messageDecorationBuilder:
@@ -173,6 +223,19 @@ class ChatPage extends StatelessWidget implements PageShape {
               ],
             ).paddingOnly(bottom: 8);
           },
+        ),
+      ),
+    );
+  }
+
+  void _showImagePreview(BuildContext context, Uint8List bytes) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: InteractiveViewer(
+          child: Image.memory(bytes),
         ),
       ),
     );

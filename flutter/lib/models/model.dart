@@ -486,6 +486,13 @@ class FfiModel with ChangeNotifier {
     timerScreenshot?.cancel();
     timerScreenshot = null;
     final msg = evt['msg'] ?? '';
+    final chatModel = parent.target?.chatModel;
+    if (chatModel != null && chatModel.waitingChatScreenshot) {
+      // A screenshot was requested from the chat window, send it as a
+      // chat image instead of showing the save/copy dialog.
+      chatModel.handleScreenshotForChat(msg.toString());
+      return;
+    }
     final msgBoxType = 'custom-nook-nocancel-hasclose';
     final msgBoxTitle = 'Take screenshot';
     final dialogManager = parent.target!.dialogManager;

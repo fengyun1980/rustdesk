@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -14,11 +16,15 @@ import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image/image.dart' as img;
 
 import '../consts.dart';
 import '../common.dart';
 import '../common/widgets/overlay.dart';
 import '../main.dart';
+import 'chat_local_io.dart'
+    if (dart.library.html) 'chat_local_stub.dart' as chat_local;
 import 'model.dart';
 
 class MessageKey {
@@ -53,8 +59,68 @@ class MessageBody {
   }
 }
 
+/// A single chunk of an image sent through the regular text chat channel.
+class _ImageChunk {
+  static final _header =
+      RegExp(r'^\[\[RDIMG1:([0-9a-z]+):(\d+)/(\d+)\]\]');
+
+  final String id;
+  final int index;
+  final int total;
+  final String data;
+
+  _ImageChunk(this.id, this.index, this.total, this.data);
+
+  static _ImageChunk? tryParse(String text) {
+    if (!text.startsWith('[[RDIMG1:')) return null;
+    final match = _header.firstMatch(text);
+    if (match == null) return null;
+    final index = int.tryParse(match.group(2)!);
+    final total = int.tryParse(match.group(3)!);
+    if (index == null || total == null) return null;
+    return _ImageChunk(
+        match.group(1)!, index, total, text.substring(match.end));
+  }
+}
+
+class _IncomingImage {
+  final int total;
+  final List<String?> parts;
+  Timer? timer;
+
+  _IncomingImage(this.total) : parts = List<String?>.filled(total, null);
+
+  /// Returns true once every chunk has been received.
+  bool add(int index, String data) {
+    if (index < 0 || index >= total) return false;
+    parts[index] = data;
+    return parts.every((e) => e != null);
+  }
+}
+
 class ChatModel with ChangeNotifier {
   static final clientModeID = -1;
+
+  // Images are split into chunks so they can go through the text-only chat
+  // channel. Each chunk is sent as a normal chat message with a marker.
+  static const _imageChunkSize = 24 * 1024; // base64 chars per message
+  static const _imageMaxChunks = 400;
+  final Map<String, _IncomingImage> _incomingImages = {};
+  bool _waitingChatScreenshot = false;
+  int _imageSeq = 0;
+
+  bool get waitingChatScreenshot => _waitingChatScreenshot;
+
+  /// Screenshot capture is only available on desktop when we are the
+  /// controlling side (client mode) and a single display is selected.
+  bool get canSendScreenshot {
+    final session = parent.target;
+    return !isWeb &&
+        !isMobile &&
+        session != null &&
+        _currentKey.connId == clientModeID &&
+        session.ffiModel.pi.currentDisplay != kAllDisplayValue;
+  }
 
   OverlayEntry? chatIconOverlayEntry;
   OverlayEntry? chatWindowOverlayEntry;
@@ -83,6 +149,10 @@ class ChatModel with ChangeNotifier {
 
   @override
   void dispose() {
+    for (final buffer in _incomingImages.values) {
+      buffer.timer?.cancel();
+    }
+    _incomingImages.clear();
     inputNode.removeListener(_updateChatInputControl);
     _restoreChatInputControl();
     textController.dispose();
@@ -364,12 +434,53 @@ class ChatModel with ChangeNotifier {
   }
 
   receive(int id, String text) async {
+    if (text.isEmpty) return;
+    final imageChunk = _ImageChunk.tryParse(text);
+    if (imageChunk != null) {
+      await _receiveImageChunk(id, imageChunk);
+      return;
+    }
+    await _insertIncomingText(id, text);
+  }
+
+  Future<void> _receiveImageChunk(int id, _ImageChunk chunk) async {
+    if (chunk.total <= 0 || chunk.total > _imageMaxChunks) return;
+    final bufferKey = '${id}_${chunk.id}';
+    var buffer = _incomingImages[bufferKey];
+    if (buffer == null) {
+      buffer = _IncomingImage(chunk.total);
+      buffer.timer = Timer(const Duration(minutes: 2), () {
+        _incomingImages.remove(bufferKey);
+      });
+      _incomingImages[bufferKey] = buffer;
+      if (_incomingImages.length > 16) {
+        final oldest = _incomingImages.keys.first;
+        _incomingImages.remove(oldest)?.timer?.cancel();
+      }
+    }
+    if (buffer.total != chunk.total) return;
+    if (!buffer.add(chunk.index, chunk.data)) return;
+    buffer.timer?.cancel();
+    _incomingImages.remove(bufferKey);
+    Uint8List bytes;
+    try {
+      bytes = base64Decode(buffer.parts.join());
+    } catch (e) {
+      debugPrint('Failed to decode chat image: $e');
+      return;
+    }
+    if (bytes.isEmpty) return;
+    await _insertIncomingText(id, '', image: bytes);
+  }
+
+  Future<void> _insertIncomingText(int id, String text,
+      {Uint8List? image}) async {
     final session = parent.target;
     if (session == null) {
       debugPrint("Failed to receive msg, session state is null");
       return;
     }
-    if (text.isEmpty) return;
+    if (text.isEmpty && image == null) return;
     if (desktopType == DesktopType.cm) {
       await showCmWindow();
     }
@@ -449,8 +560,14 @@ class ChatModel with ChangeNotifier {
       }
       chatUser = ChatUser(id: client.peerId, firstName: client.name);
     }
-    insertMessage(messagekey,
-        ChatMessage(text: text, user: chatUser, createdAt: DateTime.now()));
+    insertMessage(
+        messagekey,
+        ChatMessage(
+          text: text,
+          user: chatUser,
+          createdAt: DateTime.now(),
+          customProperties: image == null ? null : {'rdImage': image},
+        ));
     if (id == clientModeID || _currentKey.peerId.isEmpty) {
       // client or invalid
       _currentKey = messagekey;
@@ -475,6 +592,136 @@ class ChatModel with ChangeNotifier {
 
     notifyListeners();
     inputNode.requestFocus();
+  }
+
+  /// Send images picked from disk. Multiple files are sent one by one.
+  Future<void> pickAndSendImages() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: true,
+        withData: true,
+      );
+    } catch (e) {
+      debugPrint('Failed to pick image: $e');
+      return;
+    }
+    if (result == null) return;
+    for (final file in result.files) {
+      final bytes = file.bytes;
+      if (bytes != null && bytes.isNotEmpty) {
+        await sendImageBytes(bytes);
+      }
+    }
+  }
+
+  /// Ask the controlled peer for a screenshot and send it to the chat.
+  void sendScreenshotToChat() {
+    final session = parent.target;
+    if (session == null || _waitingChatScreenshot || !canSendScreenshot) {
+      return;
+    }
+    _waitingChatScreenshot = true;
+    bind.sessionTakeScreenshot(
+        sessionId: sessionId, display: session.ffiModel.pi.currentDisplay);
+    Timer(const Duration(seconds: 20), () {
+      _waitingChatScreenshot = false;
+    });
+  }
+
+  /// Called when the native side reports a screenshot result.
+  Future<void> handleScreenshotForChat(String msg) async {
+    final wasWaiting = _waitingChatScreenshot;
+    _waitingChatScreenshot = false;
+    if (!wasWaiting) return;
+    if (msg.isNotEmpty) {
+      debugPrint('Take screenshot failed: $msg');
+      return;
+    }
+    final path = await chat_local.createScreenshotTempPath();
+    if (path == null) return;
+    final res = await bind.sessionHandleScreenshot(
+        sessionId: sessionId, action: '0:$path');
+    if (res.isNotEmpty) {
+      debugPrint('Save screenshot failed: $res');
+      await chat_local.deleteTempFile(path);
+      return;
+    }
+    final bytes = await chat_local.readTempFileBytes(path);
+    if (bytes == null || bytes.isEmpty) return;
+    await sendImageBytes(bytes);
+  }
+
+  /// Encode an image and send it through the text chat channel in chunks.
+  Future<void> sendImageBytes(Uint8List raw) async {
+    if (raw.isEmpty) return;
+    final data = _prepareImage(raw);
+    if (data.isEmpty) return;
+    final key = _currentKey;
+    final imageId =
+        '${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}'
+        '${(_imageSeq++).toRadixString(36)}';
+    insertMessage(
+        key,
+        ChatMessage(
+          text: '',
+          user: me,
+          createdAt: DateTime.now(),
+          customProperties: {'rdImage': data},
+        ));
+    notifyListeners();
+    final encoded = base64Encode(data);
+    final total = (encoded.length / _imageChunkSize).ceil();
+    for (var i = 0; i < total; i++) {
+      final start = i * _imageChunkSize;
+      final end = start + _imageChunkSize < encoded.length
+          ? start + _imageChunkSize
+          : encoded.length;
+      final chunk =
+          '[[RDIMG1:$imageId:$i/$total]]${encoded.substring(start, end)}';
+      _sendRawText(key, chunk);
+      // Yield to the event loop so a big image does not block the UI.
+      if (i % 4 == 3) {
+        await Future.delayed(const Duration(milliseconds: 1));
+      }
+    }
+    inputNode.requestFocus();
+  }
+
+  void _sendRawText(MessageKey key, String text) {
+    if (key.connId == clientModeID && parent.target != null) {
+      bind.sessionSendChat(sessionId: sessionId, text: text);
+    } else {
+      bind.cmSendChat(connId: key.connId, msg: text);
+    }
+  }
+
+  /// Downscale and re-encode to JPEG to keep chat traffic small.
+  Uint8List _prepareImage(Uint8List raw) {
+    try {
+      final decoded = img.decodeImage(raw);
+      if (decoded == null) return raw;
+      var image = decoded;
+      const maxDim = 1920;
+      if (image.width > maxDim || image.height > maxDim) {
+        final ratio =
+            maxDim / (image.width > image.height ? image.width : image.height);
+        image = img.copyResize(image,
+            width: (image.width * ratio).round(),
+            height: (image.height * ratio).round());
+      }
+      var quality = 85;
+      var out = img.encodeJpg(image, quality: quality);
+      while (out.length > 1024 * 1024 && quality > 40) {
+        quality -= 15;
+        out = img.encodeJpg(image, quality: quality);
+      }
+      return Uint8List.fromList(out);
+    } catch (e) {
+      debugPrint('Failed to prepare image: $e');
+      return raw;
+    }
   }
 
   insertMessage(MessageKey key, ChatMessage message) {
