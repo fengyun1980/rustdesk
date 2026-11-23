@@ -563,7 +563,9 @@ class ChatModel with ChangeNotifier {
     insertMessage(
         messagekey,
         ChatMessage(
-          text: text,
+          // dash_chat_2 skips the text container for empty text, which would
+          // also hide the custom image widget. Keep a placeholder text.
+          text: text.isEmpty ? '[Image]' : text,
           user: chatUser,
           createdAt: DateTime.now(),
           customProperties: image == null ? null : {'rdImage': image},
@@ -608,11 +610,20 @@ class ChatModel with ChangeNotifier {
       return;
     }
     if (result == null) return;
+    var failed = false;
     for (final file in result.files) {
-      final bytes = file.bytes;
-      if (bytes != null && bytes.isNotEmpty) {
-        await sendImageBytes(bytes);
+      var bytes = file.bytes;
+      if ((bytes == null || bytes.isEmpty) && file.path != null) {
+        bytes = await chat_local.readLocalFileBytes(file.path!);
       }
+      if (bytes == null || bytes.isEmpty) {
+        failed = true;
+        continue;
+      }
+      await sendImageBytes(bytes);
+    }
+    if (failed) {
+      showToast(translate('Failed'));
     }
   }
 
@@ -658,21 +669,27 @@ class ChatModel with ChangeNotifier {
     if (raw.isEmpty) return;
     final data = _prepareImage(raw);
     if (data.isEmpty) return;
+    final encoded = base64Encode(data);
+    final total = (encoded.length / _imageChunkSize).ceil();
+    if (total <= 0 || total > _imageMaxChunks) {
+      showToast('${translate('Failed')}: image too large');
+      return;
+    }
     final key = _currentKey;
     final imageId =
         '${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}'
         '${(_imageSeq++).toRadixString(36)}';
+    // `text` must be non-empty: dash_chat_2 only renders the text container
+    // (which hosts the custom image builder) when text is not empty.
     insertMessage(
         key,
         ChatMessage(
-          text: '',
+          text: '[Image]',
           user: me,
           createdAt: DateTime.now(),
           customProperties: {'rdImage': data},
         ));
     notifyListeners();
-    final encoded = base64Encode(data);
-    final total = (encoded.length / _imageChunkSize).ceil();
     for (var i = 0; i < total; i++) {
       final start = i * _imageChunkSize;
       final end = start + _imageChunkSize < encoded.length
@@ -713,8 +730,18 @@ class ChatModel with ChangeNotifier {
       }
       var quality = 85;
       var out = img.encodeJpg(image, quality: quality);
-      while (out.length > 1024 * 1024 && quality > 40) {
-        quality -= 15;
+      // Keep the encoded image small enough to stay well under the chunk cap.
+      while (out.length > 1024 * 1024) {
+        if (quality > 40) {
+          quality -= 15;
+        } else if (image.width > 640 || image.height > 640) {
+          image = img.copyResize(image,
+              width: (image.width * 0.8).round(),
+              height: (image.height * 0.8).round());
+          quality = 60;
+        } else {
+          break;
+        }
         out = img.encodeJpg(image, quality: quality);
       }
       return Uint8List.fromList(out);
