@@ -11,6 +11,18 @@ Future<String?> createScreenshotTempPath() async {
   }
 }
 
+/// Read bytes from a user-selected local file (fallback when the file picker
+/// does not return in-memory bytes).
+Future<Uint8List?> readLocalFileBytes(String path) async {
+  try {
+    final file = File(path);
+    if (!await file.exists()) return null;
+    return await file.readAsBytes();
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Read the screenshot bytes saved by the native side, then clean up.
 Future<Uint8List?> readTempFileBytes(String path) async {
   try {
